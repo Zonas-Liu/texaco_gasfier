@@ -1,0 +1,1168 @@
+C****************************************************************
+C 异相反应反应常数
+C A1: C + H2O	--- CO + H2
+C A2: C + 2H2 --- CH4	
+C A3: C +  O2 --- 复杂
+C A4: C + CO2	--- 2CO
+C****************************************************************
+      FUNCTION A1(I)
+      IMPLICIT DOUBLE PRECISION (A-H,O-Z)
+      INCLUDE 'COMMON.00'
+      INCLUDE 'COMMON.01'
+      INCLUDE 'COMMON.02'
+
+	DO 778 J=1,NGAS
+778	Y(J)=FEMF(J,I)/FEM(I)
+
+	TP=TPAR(I)
+	CS_KEQ1=DEXP(17.644-30260.0/(1.8*TP))
+	PA1=(Y(8)-Y(6)*Y(3)*PWK/P0/CS_KEQ1)
+
+	IF(Y(8).LT.0.0001.OR.PA1.LT.0.0) THEN
+	A1=0.0
+	RETURN
+	ENDIF
+	AM=XMS(I)/ROS(I)*6.0/(PI*DP**3)
+C EPS(I)为I小室的空隙率,考虑到集渣率的影响,颗粒个数AM是要减少的!
+
+c	A1=AM*PI*DP**2.0*XKC_H2O(I)*PWK/(RAG*T(I))
+	A1=AM*PI*DP**2.0*XKC_H2O(I)*PWK*PA1*CTRL_A1
+C	LIZHENG ADDED ON FEB. 8, TO SOLVE RAC<0
+C      A1=0.0
+C	A1: [KMOL/S]
+C 反应掉的物质量是AM*PI*DP**2*XKC_H2O*(PPARTI-PPARTI0),
+C 其中分压力(PPARTI-PPARTI0)的单位是Pa,分压力与总压有下述关系
+C PPART/PTOTAL=NPART/NTOTAL=FJ(J,I)/FJM(I)(J=1,9)
+C 所以: PPART=PTOTAL*(NPART/NTOTAL)
+C            =P(I)*(FJ(J,I)/FJM(I))
+C 现在A1已经将I小室的总压P(I)包含在内,
+C 因此写反应掉(或生成)的物质量表达式时,应该是A1*(FJ(8,I)/FJM(I)-
+C FJ(6,I)/FJM(I)*FJ(3,I)/FJM(I)*P(I)/CS_KEQ1) !!!CAUTIONS
+C CS_KEQ1=DEXP(17.644-30260.0/(1.8*TP))
+
+      RETURN
+      END
+
+C**********************************************************
+C THE PROGRAM TO CALCULATE THE REACTION RATE OF CHAR AND H2
+C**********************************************************
+      FUNCTION A2(I)
+      IMPLICIT DOUBLE PRECISION (A-H,O-Z)
+      INCLUDE 'COMMON.00'
+      INCLUDE 'COMMON.01'
+      INCLUDE 'COMMON.02'
+
+	DO 778 J=1,NGAS
+778	Y(J)=FEMF(J,I)/FEM(I)
+
+      TP=TPAR(I)
+	CS_KEQ2=0.175/34713.0*DEXP(18400.0/(1.8*TP))
+C	PA2=FEMF(6,I)/FEM(I)
+C	PA3=FEMF(2,I)/FEM(I)
+	PA2=(Y(6)-DSQRT(Y(2)*P0/PWK/CS_KEQ2))
+
+	IF(Y(6).LT.0.001.OR.PA2.LT.0.0) then
+	A2=0.0
+	RETURN
+	ENDIF
+	AM=XMS(I)/ROS(I)*6.0/(PI*DP**3)
+	A2=AM*PI*DP**2.0*XKC_H2(I)*PWK*PA2*CTRL_A2
+
+C	A2=0.0
+C 反应掉的物质量是AM*PI*DP**2*XKC_H2*(PPARTI-PPARTI0),
+C 其中分压力(PPARTI-PPARTI0)的单位是Pa,分压力与总压有下述关系
+C 现在A2已经将I小室的总压P(I)包含在内,
+C 因此写反应掉(或生成)的物质量表达式时,应该是A2*(FJ(6,I)/FJM(I)-
+C SQRT(FJ(9,I)/FJM(I)/P(I)/CS_KEQ2) !!!CAUTIONS
+C CS_KEQ2=0.175*DEXP(18400.0/(1.8*TP))/34713.0
+
+      RETURN
+      END
+
+C****************************************************************
+C       THE PROGRAM TO CALCULATE THE REACTION RATE OF CHAR AND O2
+C****************************************************************
+      FUNCTION A3(I)
+      IMPLICIT DOUBLE PRECISION (A-H,O-Z)
+      INCLUDE 'COMMON.00'
+      INCLUDE 'COMMON.01'
+      INCLUDE 'COMMON.02'
+
+	DO 778 J=1,NGAS
+778	Y(J)=FEMF(J,I)/FEM(I)
+
+	IF(Y(1).LE.0.0) THEN
+	A3=0.0
+	RETURN
+	ENDIF
+	PA3=Y(1)
+	AM=XMS(I)/ROS(I)*6.0/(PI*DP**3)
+C EPS(I)为I小室的空隙率,考虑到集渣率的影响,颗粒个数AM是要减少的!
+
+c	A3=AM*PI*DP**2*XKC_O2(I)*PWK/(RAG*T(I))
+	A3=AM*PI*DP**2*XKC_O2(I)*PWK*PA3*CTRL_A3
+C	A3=1.0
+C 反应掉的物质量是AM*PI*DP**2*XKC_O2*(PPARTI-PPARTI0),
+C 其中分压力(PPARTI-PPARTI0)的单位是Pa,分压力与总压有下述关系
+C 现在A3已经将I小室的总压P(I)包含在内,
+C 因此写反应掉(或生成)的物质量表达式时,应该是A3*(FJ(1,I)/FJM(I))
+
+      RETURN
+      END
+C***************************************************************
+C       THE REACTION RATE OF THE REDUCTION OF CO2
+C***************************************************************
+      FUNCTION A4(I)
+      IMPLICIT DOUBLE PRECISION (A-H,O-Z)
+      INCLUDE 'COMMON.00'
+      INCLUDE 'COMMON.01'
+      INCLUDE 'COMMON.02'
+
+	DO 778 J=1,NGAS
+778	Y(J)=FEMF(J,I)/FEM(I)
+
+	IF(Y(4).LE.0.0) THEN
+	A4=0.0
+	RETURN
+	ENDIF
+	AM=XMS(I)/ROS(I)*6.0/(PI*DP**3)
+C EPS(I)为I小室的空隙率,考虑到集渣率的影响,颗粒个数AM是要减少的!
+
+	A4=AM*PI*DP**2.0*XKC_CO2(I)*PWK*Y(4)*CTRL_A4
+C	A4=0.0
+C 反应掉的物质量是AM*PI*DP**2*XKC_CO2*(PPARTI-PPARTI0),
+C 其中分压力(PPARTI-PPARTI0)的单位是Pa,分压力与总压有下述关系
+C 现在A4已经将I小室的总压P(I)包含在内,
+C 因此写反应掉(或生成)的物质量表达式时,应该是A4*(FJ(4,I)/FJM(I))
+      RETURN
+      END
+C***************************************************************
+C       THE CATALIC WATER GAS SHIFT REACTION: CO+H2O--CO+H2
+C***************************************************************
+      FUNCTION A5(I)
+      IMPLICIT DOUBLE PRECISION (A-H,O-Z)
+      INCLUDE 'COMMON.00'
+      INCLUDE 'COMMON.01'
+      INCLUDE 'COMMON.02'
+
+	DO 778 J=1,NGAS
+778	Y(J)=FEMF(J,I)/FEM(I)
+
+      TP=TPAR(I)
+	TM=(TP+T(I))/2.0
+
+	FW=0.2
+	XKEQ=DEXP(-3.6893+7234./(1.8*TM))
+
+C	IF(Y(1).GE.0.0) THEN
+C	A5=0.0
+C	RETURN
+C	ENDIF
+
+	PCO2=Y(4)*PWK/P0
+	PCO=Y(3)*PWK/P0
+	PH2=Y(6)*PWK/P0
+	PH2O=Y(8)*PWK/P0
+	XCO0=P0/PWK*PCO2*PH2/(XKEQ*PH2O)
+
+	IF(Y(3).LT.0.001.OR.Y(8).LT.0.001) THEN
+	A5=0.0
+	RETURN
+	ENDIF
+
+	IF(Y(3)-XCO0.LT.0.0) THEN
+	A5=0.0
+	RETURN
+	ENDIF
+C	IF(X(I).LE.0.005) THEN
+C	A5=0.0
+C	RETURN
+C	ENDIF
+	A5=FW*2.877E5*(Y(3)-XCO0)*DEXP(-27760/1.987/TM)
+	A5=A5*(PWK/P0)**(0.5-PWK/P0/250.)*DEXP(-8.91+5553./TM) 
+	A5=A5*XMS(I)*(1.0-X(I))*CTRL_A5
+	RETURN
+	END
+
+C*********************************************************
+C THE PROGRAM TO CALCULATE THE REACTION RATE OF CHAR AND OXYGEN
+C*********************************************************
+      FUNCTION XKC_O2(I)
+      IMPLICIT DOUBLE PRECISION (A-H,O-Z)
+      INCLUDE 'COMMON.00'
+      INCLUDE 'COMMON.01'
+      INCLUDE 'COMMON.02' 
+      
+      TP=TPAR(I)
+	TM=(TP+T(I))/2.0
+	VOID=0.75
+C	XCVM0: CONVERSION RATE AFTER DEVOLATILIZATION
+C	1KG 干燥无灰基对应的灰质量FASH
+	FASH=ELAS/(ELC+ELH+ELO+ELN+ELS)
+C	设焦炭的含碳量为X: 1KG焦炭=X KG碳+(1-X)灰
+
+	IF(X(I).GE.1.0) THEN
+	FOC=0.0
+	ELSE
+	FOC=1.0-FASH*X(I)/(1.0-X(I))
+	ENDIF
+
+c	IF(FOC.GE.0.99) THEN
+c	XKC_O2=0.0
+c	RETURN
+c	ENDIF
+
+C FOC:某一位置的碳转化率
+	YY=((1.0-FOC)/(1.0-XCVM0))**0.333
+	IF(YY.GE.1.0) YY=1.0
+      RKCH=8710.0*DEXP(-17967/TP)
+C RKCH 是化学反应速率
+C      RKDG=0.292*PHI(I)*(4.26/TM)*(T(I)/1800.0)**1.75
+C	&     *P0/(DP*100.0*PWK)
+C      RKDG=0.292*PHI(I)*(4.26/TM)*(T(I)/1800.0)**1.75
+C	&     *P0/(DP*100.0*PWK)
+	D0=4.26*(T(I)/1800.0)**1.75/PWK*P0		  
+C      RKDG=0.292*PHI(I)*D0/(DP*100.0)/TM
+      RKDG=0.292*PHI(I)*D0/(DP*100.0)/T(I)
+     &      *COEF_A3
+C RKDG 是气体扩散速率
+	RKDA=VOID**2.5*RKDG
+C RKDA 是灰层扩散速率
+C      XKC_O2=1.0/(1.0/(RKCH*YY*YY)+1.0/RKDG+1.0/RKDA*(1.0/YY-1.0))
+      XKC_O2=YY*YY/(1.0/RKCH+YY*YY/RKDG+1.0/RKDA*(YY-YY*YY))
+C ACCORDING TO WEN,BE CARE OF THE UNIT!!!
+C HERE THE UNIT IS G/(CM2.atm.S)
+C 单位转换
+	XKC_O2=XKC_O2*10.0/1.01325D5/12.0
+C	WRITE(*,*)'==I=',I,'=======XKC_O2=',XKC_O2,'========'
+C THE UNIT OF XKC_O2 IS KMOL/(M2.Pa.S)
+      RETURN
+      END
+C*********************************************************
+C THE PROGRAM TO CALCULATE THE REACTION RATE OF CHAR AND H2O
+C*********************************************************
+      FUNCTION XKC_H2O(I)
+      IMPLICIT DOUBLE PRECISION (A-H,O-Z)
+      INCLUDE 'COMMON.00'
+      INCLUDE 'COMMON.01'
+      INCLUDE 'COMMON.02' 
+      
+      TP=TPAR(I)
+	TM=(TP+T(I))/2.0
+	VOID=0.75
+C	XCVM0: CONVERSION RATE AFTER DEVOLATILIZATION
+C	1KG 干燥无灰基对应的灰质量FASH
+	FASH=ELAS/(ELC+ELH+ELO+ELN+ELS)
+C	设焦炭的含碳量为X: 1KG焦炭=X KG碳+(1-X)灰
+
+	IF(X(I).GE.1.0) THEN
+	FOC=0.0
+	ELSE
+	FOC=1.0-FASH*X(I)/(1.0-X(I))
+	ENDIF
+c	IF(FOC.GE.0.99) THEN
+c	XKC_H2O=0.0
+c	RETURN
+c	ENDIF
+C FOC:某一位置的碳转化率
+	YY=((1.0-FOC)/(1.0-XCVM0))**0.333
+      RKCH=247.0*DEXP(-21060.0/TP)
+C RKCH 是化学反应速率
+      RKDG=10.0*1.0D-4*(T(I)/2000.0)**0.75*P0/(DP*100.0*PWK)
+     &      *COEF_A1
+
+C RKDG 是气体扩散速率
+	RKDA=VOID**2.5*RKDG
+C      XKC_H2O=1.0/(1.0/(RKCH*YY*YY)+1.0/RKDG)
+      XKC_H2O=YY*YY/(1.0/RKCH+YY*YY/RKDG+1.0/RKDA*(YY-YY*YY))
+C ACCORDING TO WEN,BE CARE OF THE UNIT!!!
+C HERE THE UNIT IS G/(CM2.atm.S)
+C 单位转换
+	XKC_H2O=XKC_H2O*10.0/1.01325D5/12.0
+C THE UNIT OF XKC_H2O IS KMOL/(M2.Pa.S)
+      RETURN
+      END
+C*********************************************************
+C THE PROGRAM TO CALCULATE THE REACTION RATE OF CHAR AND CO2
+C*********************************************************
+      FUNCTION XKC_CO2(I)
+      IMPLICIT DOUBLE PRECISION (A-H,O-Z)
+      INCLUDE 'COMMON.00'
+      INCLUDE 'COMMON.01'
+      INCLUDE 'COMMON.02' 
+      
+      TP=TPAR(I)
+	TM=(TP+T(I))/2.0
+	VOID=0.75
+C	XCVM0: CONVERSION RATE AFTER DEVOLATILIZATION
+C	1KG 干燥无灰基对应的灰质量FASH
+	FASH=ELAS/(ELC+ELH+ELO+ELN+ELS)
+C	设焦炭的含碳量为X: 1KG焦炭=X KG碳+(1-X)灰
+
+	IF(X(I).GE.1.0) THEN
+	FOC=0.0
+	ELSE
+	FOC=1.0-FASH*X(I)/(1.0-X(I))
+	ENDIF
+c	IF(FOC.GE.0.99) THEN
+c	XKC_CO2=0.0
+c	RETURN
+c	ENDIF
+C FOC:某一位置的碳转化率
+	YY=((1.0-FOC)/(1.0-XCVM0))**0.333
+      RKCH=247.0*DEXP(-21060.0/TP)
+C RKCH 是化学反应速率
+      RKDG=7.450D-4*(T(I)/2000.0)**0.75*P0/(DP*100.0*PWK)
+     &      *COEF_A4
+
+C RKDG 是气体扩散速率
+	RKDA=VOID**2.5*RKDG
+C RKDA 是灰层扩散速率
+C      XKC_CO2=1.0/(1.0/(RKCH*YY*YY)+1.0/RKDG)
+      XKC_CO2=YY*YY/(1.0/RKCH+YY*YY/RKDG+1.0/RKDA*(YY-YY*YY))
+C ACCORDING TO WEN,BE CARE OF THE UNIT!!!
+C HERE THE UNIT IS G/(CM2.atm.S)
+C 单位转换
+	XKC_CO2=XKC_CO2*10.0/1.01325D5/12.0
+C THE UNIT OF XKC_CO2 IS KMOL/(M2.Pa.S)
+      RETURN
+      END
+
+C*********************************************************
+C THE PROGRAM TO CALCULATE THE REACTION RATE OF CHAR AND H2
+C*********************************************************
+      FUNCTION XKC_H2(I)
+      IMPLICIT DOUBLE PRECISION (A-H,O-Z)
+      INCLUDE 'COMMON.00'
+      INCLUDE 'COMMON.01'
+      INCLUDE 'COMMON.02' 
+      
+C	PO2=FEMF(1,I)/FEM(I)
+C	IF(PO2.GE.0.001) THEN
+C	XKC_H2=0.0
+C	RETURN
+C	ENDIF
+
+      TP=TPAR(I)
+	TM=(TP+T(I))/2.0
+	VOID=0.75
+C	XCVM0: CONVERSION RATE AFTER DEVOLATILIZATION
+C	1KG 干燥无灰基对应的灰质量FASH
+	FASH=ELAS/(ELC+ELH+ELO+ELN+ELS)
+C	设焦炭的含碳量为X: 1KG焦炭=X KG碳+(1-X)灰
+
+	IF(X(I).GE.1.0) THEN
+	FOC=0.0
+	ELSE
+	FOC=1.0-FASH*X(I)/(1.0-X(I))
+	ENDIF
+c	IF(FOC.GE.0.99) THEN
+c	XKC_H2=0.0
+c	RETURN
+c	ENDIF
+C FOC:某一位置的碳转化率
+	YY=((1.0-FOC)/(1.0-XCVM0))**0.333
+      RKCH=0.12*DEXP(-17921.0/TP)
+C RKCH是化学反应速率
+      RKDG=1.330D-3*(T(I)/2000.0)**0.75*P0/(DP*100.0*PWK)
+     &      *COEF_A2
+C RKDG是气体扩散速率
+	RKDA=VOID**2.5*RKDG
+C RKDA 是灰层扩散速率
+C      XKC_H2=1.0/(1.0/(RKCH*YY*YY)+1.0/RKDG)
+      XKC_H2=YY*YY/(1.0/RKCH+YY*YY/RKDG+1.0/RKDA*(YY-YY*YY))
+C ACCORDING TO WEN,BE CARE OF THE UNIT!!!
+C HERE THE UNIT IS G/(CM2.atm.S)
+C 单位转换
+	XKC_H2=XKC_H2*10.0/1.01325D5/12.0
+C THE UNIT OF XKC_H2 IS KMOL/(M2.Pa.S)
+      RETURN
+      END
+C****************************************************
+C MECHANICAL FACTOR: PHI(I)
+C****************************************************
+      FUNCTION PHI(I)
+      IMPLICIT DOUBLE PRECISION (A-H,O-Z)
+      INCLUDE 'COMMON.00'
+      INCLUDE 'COMMON.01'
+      INCLUDE 'COMMON.02'
+
+      TP=TPAR(I)
+
+	TM=(TP+T(I))/2.0
+C      PP=2500.*DEXP(-5.19D7/(RAG*TM))
+      PP=2500.*DEXP(-6249.0/TM)
+C ACCORDING TO WEN
+
+      IF (DP.LT.5.0D-05) PHI=(2.*PP+2.)/(PP+2.)
+      IF ((DP.GE.5.0D-05).AND.(DP.LE.1.0D-03)) THEN
+         PHI=((2.*PP+2.)-PP*(100.0*DP-0.005)/0.095)/(PP+2.)
+      ENDIF
+      IF (DP.GT.1.0D-03) PHI=1.0
+      RETURN
+      END
+
+C******************************************************
+C   RI: THE TOTAL CARBON CONSUMPTION
+C******************************************************
+C****************************************************************
+C 异相反应反应常数
+C A1: C + H2O	--- CO + H2
+C A2: C + 2H2 --- CH4	
+C A3: C +  O2 --- 复杂
+C A4: C + CO2	--- 2CO
+C****************************************************************
+      FUNCTION RI(I)
+      IMPLICIT DOUBLE PRECISION (A-H,O-Z)
+      INCLUDE 'COMMON.00'
+      INCLUDE 'COMMON.01'
+      INCLUDE 'COMMON.02'
+
+	DO 778 J=1,NGAS
+778	Y(J)=FEMF(J,I)/FEM(I)
+
+	RI=(A1(I)+A2(I)+A3(I)+A4(I))*12.0
+
+      RETURN
+      END
+CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC
+C	RADIATION HEAT TRANSFER COEFFICIENT
+CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC
+      FUNCTION WDKR(T,TW)
+      IMPLICIT DOUBLE PRECISION (A-H,O-Z)
+       TM=(TW+T)/2.
+       CS=5.672D-8
+       ESURF=0.78
+       ESURP=0.78
+       ALPHAR=CS*(T**4-TW**4)
+     &        /(1.0/ESURF+1.0/ESURP-1.0)/(T-TW)
+       WDKR=ALPHAR
+C	WDKR=0.0
+       RETURN
+       END
+C=    ------------------------------------------
+C 计算混和气体粘度的函数,与温度T,和各自的体积百分含量有关,
+C 在气化炉操作压力下(P=35 ATM),与压力无关!
+	FUNCTION FXMUG(Y,T)
+      IMPLICIT DOUBLE PRECISION (A-H,O-Z)
+	 
+	DIMENSION XMOLE_WEIGHT(9)
+C XMOLE_WEIGHT(9)代表各种气体的分子量
+	DIMENSION XMUG(9),Y(9)
+C XMUG(9)代表各种纯气体的粘度,Y(9)代表各自的摩尔浓度
+	DIMENSION A(9,9),B(9)
+C A(9,9),B(9)代表中间变量
+	DATA G/9.81/
+	DATA T0/273.15/
+	DATA XMOLE_WEIGHT/31.999,58.124,28.010,44.010,
+     &                  34.080,2.016,28.013,18.015,16.043/
+
+	XMUG(1)=G*1.98D-6*(T/T0)**0.693
+      XMUG(2)=G*0.697D-6*(T/T0)**0.97
+	XMUG(3)=G*1.69D-6*(T/T0)**0.695
+	XMUG(4)=G*1.43D-6*(T/T0)**0.820
+	XMUG(5)=G*1.194D-6*(T/T0)**0.986
+	XMUG(6)=G*0.852D-6*(T/T0)**0.678
+	XMUG(7)=G*1.70D-6*(T/T0)**0.680
+	XMUG(8)=G*0.84D-6*(T/T0)**1.200
+	XMUG(9)=G*1.06D-6*(T/T0)**0.760
+C 1.氧气 2.挥发份 3.一氧化碳 4.二氧化碳 5.硫化氢 6.氢气 7.氮气 8.水蒸气 9.甲烷
+C O2, VOLA,CO, CO2, H2S, H2, N2, H2O,CH4
+C THE DATA PARTLY COME FROM "流体热物理性质的计算",Page 197,Table 7-5.
+C THE DATA OF H2S IS ESTIMATED BY HAN ZHIMING, VOLA IS ASSUMED TO BE 丁烷
+
+      DO 10 I=1,9
+	DO 10 J=1,9
+	   A(I,J)=(1+(XMUG(I)/XMUG(J))**0.5*
+     &	      (XMOLE_WEIGHT(J)/XMOLE_WEIGHT(I))**0.25)**2.0
+     &		  /SQRT(8.0*(1.0+XMOLE_WEIGHT(I)/XMOLE_WEIGHT(J)))
+   10	CONTINUE
+
+      DO 20 I=1,9
+	   B(I)=0.0
+	   DO 30 J=1,9
+	      B(I)=B(I)+Y(J)*A(I,J)
+   30	   CONTINUE
+	   B(I)=Y(I)/B(I)
+   20	CONTINUE
+
+	FXMUG=0.0
+	DO 40 I=1,9
+	   FXMUG=FXMUG+B(I)*XMUG(I)
+   40	CONTINUE
+
+	RETURN
+      END
+
+C=    ------------------------------------------
+      FUNCTION ENTHP(KOMP,IAGG,T,P)
+      IMPLICIT DOUBLE PRECISION (A-H,O-Z)
+      CHARACTER*4 IAGG,KALZG
+      DATA KALZG/ 'ENTH'/
+      DATA XMC,XSIO2 / 12.00 , 60./
+C==========LIZHENG, WANG TIANJIAO 2000/1/6==========
+C	GAS NUMBER: 1-O2,2-CH4,3-CO,4-CO2,5-H2S,6-H2,7-N2,8-H2O
+C				9-CARBON,10-ASH
+      GOTO (10,20,30,40,50,60,70,80,90,100) KOMP
+ 10   ENTHP=FO2(T,P,-1.D00,IAGG,KALZG)
+	 RETURN
+ 20   CONTINUE
+	ENTHP=FCH4(T,P,-1.D00,IAGG,KALZG)
+	 RETURN
+ 30   ENTHP=FCO(T,P,-1.D00,IAGG,KALZG)
+	 RETURN
+ 40   ENTHP=FCO2(T,P,-1.D00,IAGG,KALZG)
+	 RETURN
+ 50   ENTHP=FH2S(T,P,-1.D00,IAGG,KALZG)
+	 RETURN
+ 60   ENTHP=FH2(T,P,-1.D00,IAGG,KALZG)
+	 RETURN
+ 70   ENTHP=FN2(T,P,-1.D00,IAGG,KALZG)
+	 RETURN
+ 80   ENTHP=FH2O(T,P,-1.D00,IAGG,KALZG)
+	 RETURN
+90    ENTHP=FC(T,P,-1.D00,IAGG,KALZG)
+      ENTHP=ENTHP/XMC
+	 RETURN
+ 100  ENTHP=FSOLID(T,P,-1.D00,IAGG,KALZG)
+      ENTHP=ENTHP/XSIO2
+	 RETURN
+	END
+
+      FUNCTION FH2(TEMP,PP,X,IAGG,KALZG)
+C**** STOFFWERTROUTINE ZUR BERECHNUNG DER STOFFWERTE VON H2
+C**** H2 WIRD ALS IDEALES GAS BEHANDELT
+C****   (WERTE AUS KNACKE/BARIN)
+      IMPLICIT DOUBLE PRECISION (A-H,O-Z)
+      CHARACTER*4 IAGG,KALZG
+      DATA A,B,C,D /6.52,0.78,0.12,0./
+      DATA S298,TU /130.645,298.15/
+C****            ( KJ/KMOL K, K)
+C=    RM ( UNIT: KJ/(KMOL.K)  ) 
+      DATA RM /8.3143/
+      DATA XMOLG /2.0159/
+C****            (KG/KMOL)
+C**** NACH REID, PRAUSNITZ UND SHERWOOD
+      DATA SIGMA,EPSK /2.827,59.7/
+C****
+      IF(IAGG.EQ.'G   ') GOTO 10
+      IF(IAGG.EQ.'    ') GOTO 10
+      GOTO 900
+   10 IF(KALZG.EQ.'ENTH') GOTO 100
+      IF(KALZG.EQ.'ENTR') GOTO 200
+      IF(KALZG.EQ.'IOFS') GOTO 700
+      IF(KALZG.EQ.'IDIC') GOTO 800
+      IF(KALZG.EQ.'MOLG') GOTO 850
+      IF(KALZG.EQ.'IVIS') GOTO 855
+      GOTO 900
+C**** ENTHPIE   (J/KMOL)
+  100 E=CMP(A,B,C,D,TEMP,TU)
+      FH2=E*1.0D03
+      RETURN
+C**** ENTROPIE   (KJ/KMOL K)
+  200 E=S298+CMPT(A,B,C,D,TEMP,TU)-RM*DLOG(PP/1.01325D05)
+      FH2=E
+      RETURN
+C**** OBERFLAECHENSPANNUNG
+  700 GOTO 900
+C**** DICHTE, BERECHNET MIT DER GLEICHUNG FUER IDEALES GAS
+C**** P*V=R*T        (KG/M*3)
+  800 E=PP*XMOLG/RM/TEMP
+      FH2=E*1.0D-03
+      RETURN
+C**** MOLEKULARGEWICHT     (KG/KMOL)
+  850 FH2=XMOLG
+      RETURN
+C**** VISKOSITAET NACH REID, PRAUSNITZ U.SHERWOOD THE 
+C**** PROPERTIES OF GASES AND LIQUIDS  , S. 395  (KG/M SEC)
+  855 TSTAR=TEMP/EPSK
+      OMEGAV=1.16145/TSTAR**0.14874+0.52487/DEXP(0.77320*TSTAR)
+     &  +2.16178/DEXP(2.43787*TSTAR)
+      ETA=26.69*DSQRT(XMOLG*TEMP)/(SIGMA*SIGMA*OMEGAV)
+      FH2=ETA*1.E-07
+      RETURN
+  900 FH2=0.
+	IF(X.GT.0.0) WRITE(*,*)'X>0.0'
+      RETURN
+      END
+
+C=    ------------------------------------------------------
+      FUNCTION FSOLID(TEMP,PP,X,IAGG,KALZG)
+      IMPLICIT DOUBLE PRECISION (A-H,O-Z)
+      DIMENSION A(2),B(2),C(2),D(2)
+      CHARACTER*4 IAGG,KALZG
+      DATA A(1),B(1),C(1),D(1)/10.496,9.277,-2.313,0./
+      DATA A(2),B(2),C(2),D(2)/14.08,2.4,0.,0./
+      DATA S298,TU / 9.91,298.15/
+      DATA HMT/-911292.2/
+      DATA RM / 8.3143/
+      TEMPNEU=TEMP
+      IF(TEMP.GT.847.) TEMPNEU=847.
+      IF(IAGG.NE.'G   ') GOTO 10
+      IF(IAGG.EQ.'    ') GOTO 10
+      GOTO 900
+  10  IF(KALZG.EQ.'ENTH')GOTO 100
+      IF(KALZG.EQ.'ENTR') GOTO 200
+      GOTO 900
+C=    ENTHPIE   (J/KMOL)
+ 100  E=HMT+CMP(A(1),B(1),C(1),D(1),TEMPNEU,TU)
+      IF(TEMP.GT.847.)E=E+CMP(A(2),B(2),C(2),D(2),TEMP,847.D00)
+      FSOLID=E*1.0D03
+      RETURN
+ 200  E=S298+CMPT(A(1),B(1),C(1),D(1),TEMPNEU,TU)
+     &       -RM*DLOG(PP/1.01325D05)
+      IF(TEMP.GT.847.)E=E+CMPT(A(2),B(2),C(2),D(2),TEMP,847.D00)
+      FSOLID=E
+      RETURN
+ 900  CONTINUE
+ 	IF(X.GT.0.0) WRITE(*,*)'X>0.0'
+      RETURN
+      END
+
+C=    --------------------------------------------------------
+      FUNCTION FH2S(TEMP,PP,X,IAGG,KALZG)
+C**** STOFFWERTROUTINE ZUR BERECHNUNG DER STOFFWERTE VON H2S
+      IMPLICIT DOUBLE PRECISION (A-H,O-Z)
+      CHARACTER*4 IAGG,KALZG
+      DATA A,B,C,D/31.8544,3.5503D-3,3.1474D-6,-0.8717D-9/
+C 与CMPS对应,与其他的单位不同!!!,这几个数直接得到热焓差的单位是KJ/KMOL
+      DATA TU / 298.15/
+      DATA HMT/-20180.4/
+
+C****            (KJ/KMOL, KJ/KMOL K, K)
+      IF (IAGG.EQ.'G   ') GOTO 10
+      IF (IAGG.EQ.'    ') GOTO 10
+      GOTO 900
+   10 IF (KALZG.EQ.'ENTH') GOTO 100
+      GOTO 900
+C**** ENTHPIE   (J/KMOL)
+  100 E=HMT+CMPS(A,B,C,D,TEMP,TU)
+      FH2S=E*1.0E03
+      RETURN
+  900 FH2S=0.								  
+	IF(X.GT.0.0) WRITE(*,*)'X>0.0'
+	IF(PP.LT.0.0) WRITE(*,*)'PP<0.0'
+      RETURN
+      END
+
+C=    -----------------------------------------------------
+      FUNCTION FO2(TEMP,PP,X,IAGG,KALZG)
+
+C**** STOFFWERTROUTINE ZUR BERECHNUNG DER STOFFWERTE VON O2
+C**** O2 WIRD ALS IDEALES GAS BEHANDELT
+C****   (WERTE AUS KNACKE/BARIN)
+      IMPLICIT DOUBLE PRECISION (A-H,O-Z)
+      CHARACTER*4 IAGG,KALZG
+      DATA A,B,C,D /7.16,1.,-0.4,0./
+      DATA S298,TU /205.135,298.15/
+C****            (KJ/KMOL, KJ/KMOL K, K)
+      DATA RM /8.3143/
+      DATA XMOLG /31.9988/
+C****            (KG/KMOL)
+C**** NACH REID, PRAUSNITZ UND SHERWOOD
+      DATA SIGMA,EPSK /3.467,106.7/
+C****
+      IF(IAGG.EQ.'G   ') GOTO 10
+      IF(IAGG.EQ.'    ') GOTO 10
+      GOTO 900
+   10 IF(KALZG.EQ.'ENTH') GOTO 100
+      IF(KALZG.EQ.'ENTR') GOTO 200
+      IF(KALZG.EQ.'IOFS') GOTO 700
+      IF(KALZG.EQ.'IDIC') GOTO 800
+      IF(KALZG.EQ.'MOLG') GOTO 850
+      IF(KALZG.EQ.'IVIS') GOTO 855
+      GOTO 900
+C**** ENTHPIE   (J/KMOL)
+  100 E=CMP(A,B,C,D,TEMP,TU)
+      FO2=E*1.0E03
+      RETURN
+C**** ENTROPIE   (KJ/KMOL K)
+  200 E=S298+CMPT(A,B,C,D,TEMP,TU)-RM*DLOG(PP/1.01325D05)
+      FO2=E
+      RETURN
+C**** OBERFLAECHENSPANNUNG
+  700 GOTO 900
+C**** DICHTE, BERECHNET MIT DER GLEICHUNG FUER IDEALES GAS
+C**** P*V = R*T        (KG/M*3)
+  800 E=PP*XMOLG/RM/TEMP
+      FO2=E*1.0D-3
+      RETURN
+C**** MOLEKULARGEWICHT     (KG/KMOL)
+  850 FO2=XMOLG
+      RETURN
+C**** VISKOSITAET NACH REID, PRAUSNITZ U. SHERWOOD THE 
+C**** PROPERTIES OF GASES AND LIQUIDS  , S. 395 (KG/M SEC)
+  855 TSTAR=TEMP/EPSK
+      OMEGAV=1.16145/TSTAR**0.14874+0.52487/DEXP(0.77320*TSTAR)
+     &  +2.16178/DEXP(2.43787*TSTAR)
+      ETA=26.69*DSQRT(XMOLG*TEMP)/(SIGMA*SIGMA*OMEGAV)
+      FO2=ETA*1.E-07
+      RETURN
+  900 FO2=0.
+	IF(X.GT.0.0) WRITE(*,*)'X>0.0'
+      RETURN
+      END
+C=    ----------------------------------------------------------
+      FUNCTION FC(TEMP,PP,X,IAGG,KALZG)
+
+C**** STOFFWERTROUTINE ZUR BERECHNUNG DER STOFFWERTE VON C
+C****   (WERTE AUS KNACKE/BARIN)
+      IMPLICIT DOUBLE PRECISION (A-H,O-Z)
+      DIMENSION A(2),B(2),C(2),D(2)
+      CHARACTER*4 IAGG,KALZG
+      DATA A(1),B(1),C(1),D(1) /0.026,9.307,-0.354,-4.155/
+      DATA A(2),B(2),C(2),D(2) /5.841,0.104,-7.559,0./
+      DATA S298,TU /  5.743,298.15/
+      DATA HMT /0./
+C****            (KJ/KMOL, KJ/KMOL K, K)
+      DATA RM /8.3143/
+C****
+      TEMPNEU=TEMP
+      IF(TEMP.GT.1100.) TEMPNEU=1100.
+      IF(IAGG.NE.'G   ') GOTO 10
+      IF(IAGG.EQ.'    ') GOTO 10
+      GOTO 900
+   10 IF(KALZG.EQ.'ENTH') GOTO 100
+      IF(KALZG.EQ.'ENTR') GOTO 200
+      GOTO 900
+C**** ENTHPIE   (J/KMOL)
+  100 E=HMT+CMP(A(1),B(1),C(1),D(1),TEMPNEU,TU)
+      IF(TEMP.GT.1100.) E=E+CMP(A(2),B(2),C(2),D(2),TEMP,1100.D00)
+      FC=E*1.0E03
+      RETURN
+C**** ENTROPIE   (KJ/KMOL K)
+  200 E=S298+CMPT(A(1),B(1),C(1),D(1),TEMPNEU,TU)
+     &     -RM*DLOG(PP/1.01325D05)
+      IF(TEMP.GT.1100.) E=E
+     &    +CMPT(A(2),B(2),C(2),D(2),TEMP,1100.D00)
+      FC=E
+      RETURN
+  900 FC=0.
+	IF(X.GT.0.0) WRITE(*,*)'X>0.0'
+      RETURN
+      END
+
+C=    ------------------------------------------------------------
+      FUNCTION FN2(TEMP,PP,X,IAGG,KALZG)
+
+C**** STOFFWERTROUTINE ZUR BERECHNUNG DER STOFFWERTE VON N2
+C**** N2 WIRD ALS IDEALES GAS BEHANDELT
+C****   (WERTE AUS KNACKE/BARIN)
+      IMPLICIT DOUBLE PRECISION (A-H,O-Z)
+      CHARACTER*4 IAGG,KALZG
+      DATA A,B,C,D /6.66,1.02,0.,0./
+      DATA S298,TU /191.593,298.15/
+C****            (KJ/KMOL, KJ/KMOL K, K)
+      DATA RM /8.3143/
+      DATA XMOLG /28.0134/
+C****            (KG/KMOL)
+C**** NACH REID, PRAUSNITZ UND SHERWOOD
+      DATA SIGMA,EPSK /3.798,71.4/
+C****
+      IF(IAGG.EQ.'G   ') GOTO 10
+      IF(IAGG.EQ.'    ') GOTO 10
+      GOTO 900
+   10 IF(KALZG.EQ.'ENTH') GOTO 100
+      IF(KALZG.EQ.'ENTR') GOTO 200
+      IF(KALZG.EQ.'IOFS') GOTO 700
+      IF(KALZG.EQ.'IDIC') GOTO 800
+      IF(KALZG.EQ.'MOLG') GOTO 850
+      IF(KALZG.EQ.'IVIS') GOTO 855
+      GOTO 900
+C**** ENTHPIE   (J/KMOL)
+  100 E=CMP(A,B,C,D,TEMP,TU)
+      FN2=E*1.0E03
+      RETURN
+C**** ENTROPIE   (KJ/KMOL K)
+  200 E=S298+CMPT(A,B,C,D,TEMP,TU)-RM*DLOG(PP/1.01325D05)
+      FN2=E
+      RETURN
+C**** OBERFLAECHENSPANNUNG
+  700 GOTO 900
+C**** DICHTE, BERECHNET MIT DER GLEICHUNG FUER IDEALES GAS
+C**** P*V = R*T        (KG/M*3)
+  800 E=PP*XMOLG/RM/TEMP
+      FN2=E*1.0D-03
+      RETURN
+C**** MOLEKULARGEWICHT     (KG/KMOL)
+  850 FN2=XMOLG
+      RETURN
+C**** VISKOSITAET NACH REID, PRAUSNITZ U. SHERWOOD    
+C**** THE PROPERTIES OF GASES AND LIQUIDS, S. 395 (KG/M SEC)
+  855 TSTAR=TEMP/EPSK
+      OMEGAV=1.16145/TSTAR**0.14874+0.52487/DEXP(0.77320*TSTAR)
+     &  +2.16178/DEXP(2.43787*TSTAR)
+      ETA=26.69*DSQRT(XMOLG*TEMP)/(SIGMA*SIGMA*OMEGAV)
+      FN2=ETA*1.E-07
+      RETURN
+  900 FN2=0.
+	IF(X.GT.0.0) WRITE(*,*)'X>0.0'
+      RETURN
+      END
+C=    ---------------------------------------------------------
+      FUNCTION FCO2(TEMP,PP,X,IAGG,KALZG)
+
+C**** STOFFWERTROUTINE ZUR BERECHNUNG DER STOFFWERTE VON CO2
+C****   (WERTE AUS KNACKE/BARIN)
+      IMPLICIT DOUBLE PRECISION (A-H,O-Z)
+      CHARACTER*4 IAGG,KALZG
+      DATA A,B,C,D /10.55,2.16,-2.04,0./
+      DATA S298,TU /213.762,298.15/
+      DATA HMT /-393693.3/
+C****            (KJ/KMOL, KJ/KMOL K, K)
+      DATA RM /8.3143/
+C****
+      IF(IAGG.EQ.'G   ') GOTO 10
+      IF(IAGG.EQ.'    ') GOTO 10
+      GOTO 900
+   10 IF(KALZG.EQ.'ENTH') GOTO 100
+      IF(KALZG.EQ.'ENTR') GOTO 200
+      GOTO 900
+C**** ENTHPIE   (J/KMOL)
+  100 E=HMT+CMP(A,B,C,D,TEMP,TU)
+      FCO2=E*1.0E03
+      RETURN
+C**** ENTROPIE   (KJ/KMOL K)
+  200 E=S298+CMPT(A,B,C,D,TEMP,TU)-RM*DLOG(PP/1.01325D05)
+      FCO2=E
+      RETURN
+  900 FCO2=0.
+	IF(X.GT.0.0) WRITE(*,*)'X>0.0'
+      RETURN
+      END
+C=    -------------------------------------------------------------
+      FUNCTION FCO(TEMP,PP,X,IAGG,KALZG)
+
+C**** STOFFWERTROUTINE ZUR BERECHNUNG DER STOFFWERTE VON CO
+C**** CO WIRD ALS IDEALES GAS BEHANDELT
+C****   (WERTE AUS KNACKE/BARIN)
+      IMPLICIT DOUBLE PRECISION (A-H,O-Z)
+      CHARACTER*4 IAGG,KALZG
+      DATA A,B,C,D /6.79,0.98,-0.11,0./
+      DATA S298,TU /197.646,298.15/
+      DATA HMT /-110594.12/
+C****            (KJ/KMOL, KJ/KMOL K, K)
+      DATA RM /8.3143/
+      DATA XMOLG /28.0106/
+C****            (KG/KMOL)
+C**** NACH REID, PRAUSNITZ UND SHERWOOD
+      DATA SIGMA,EPSK /3.690,91.7/
+C****
+      IF(IAGG.EQ.'G   ') GOTO 10
+      IF(IAGG.EQ.'    ') GOTO 10
+      GOTO 900
+   10 IF(KALZG.EQ.'ENTH') GOTO 100
+      IF(KALZG.EQ.'ENTR') GOTO 200
+      IF(KALZG.EQ.'IOFS') GOTO 700
+      IF(KALZG.EQ.'IDIC') GOTO 800
+      IF(KALZG.EQ.'MOLG') GOTO 850
+      IF(KALZG.EQ.'IVIS') GOTO 855
+      GOTO 900
+C**** ENTHPIE   (J/KMOL)
+  100 E=HMT + CMP(A,B,C,D,TEMP,TU)
+      FCO=E*1.0E03
+      RETURN
+C**** ENTROPIE   (KJ/KMOL K)
+  200 E=S298+CMPT(A,B,C,D,TEMP,TU)-RM*DLOG(PP/1.01325D05)
+      FCO=E
+      RETURN
+C**** OBERFLAECHENSPANNUNG
+  700 GOTO 900
+C**** DICHTE, BERECHNET MIT DER GLEICHUNG FUER IDEALES GAS
+C**** P*V = R*T        (KG/M*3)
+  800 E=PP*XMOLG/RM/TEMP
+      FCO=E*1.0D-3
+      RETURN
+C**** MOLEKULARGEWICHT     (KG/KMOL)
+  850 FCO=XMOLG
+      RETURN
+C**** VISKOSITAET NACH REID, PRAUSNITZ U. SHERWOOD
+C**** THE PROPERTIES OF  GASES AND LIQUIDS, S. 395 (KG/M SEC)
+  855 TSTAR=TEMP/EPSK
+      OMEGAV=1.16145/TSTAR**0.14874+0.52487/DEXP(0.77320*TSTAR)
+     &  +2.16178/DEXP(2.43787*TSTAR)
+      ETA=26.69*DSQRT(XMOLG*TEMP)/(SIGMA*SIGMA*OMEGAV)
+      FCO=ETA*1.E-07
+      RETURN
+  900 FCO=0.
+	IF(X.GT.0.0) WRITE(*,*)'X>0.0'
+      RETURN
+      END
+C=    -----------------------------------------------------------
+      FUNCTION CMP(A,B,C,D,T,T0)
+
+C**** * C M P * WERTET DAS INTEGRAL UEBER
+C**** (A+B*E-03*T+C*E+05/(T**2)+D*E-06*T**3) DT AUS
+C****    (KJ/KMOL)
+      IMPLICIT DOUBLE PRECISION (A-H,O-Z)
+      CMP=4.186*(A*(T-T0)+B*.05*(T*T*.01-T0*T0*0.01)
+     &      -C*(1.E+05/T-1.0E+05/T0)+D/3.*((.01*T)**3-(.01*T0)**3))
+      RETURN
+      END
+
+C=    -----------------------------------------------------------
+      FUNCTION CMPS(A,B,C,D,T,T0)
+C**** CMPS 代表两个温度之间的物理焓差
+C  FOR H2S CP=A+B*T+C*T**2+D*T**3
+C**** (KJ/KMOL)
+      IMPLICIT DOUBLE PRECISION (A-H,O-Z)
+      CMPS=A*(T-T0)+B*(T**2-T0**2)
+     &      +C*(T**3-T0**3)+D*(T**4-T0**4)
+      RETURN
+      END
+
+C=    ------------------------------------------------------------
+      FUNCTION CMPT(A,B,C,D,T,T0)
+
+C**** * C M P T * WERTET DAS INTEGRAL UEBER
+C**** (A+B*E-03*T+C*E+05/(T**2)+D*E-06*T**3)/T DT AUS
+C****    (KJ/KMOL K)
+      IMPLICIT DOUBLE PRECISION (A-H,O-Z)
+      CMPT=4.186*(A*DLOG(T/T0)+B*.001*(T-T0)
+     &       -.5*C*(1.0E+05/T/T-1.0E+05/T0/T0)
+     &       +D*.5E-06*(T*T-T0*T0))
+      RETURN
+      END
+C=    -------------------------------------------------------------
+      FUNCTION FPART(A,B,C,D,E,F,G,T)
+
+C***   * FPART * * BERECHNET DEN PARTIALDRUCK ENTSPRECHEND =
+      IMPLICIT DOUBLE PRECISION (A-H,O-Z)
+      RLOGP=-A/T+B+C*DLOG10(T)+(D+(E+(F+(G*T))*T)*T)*T
+      FPART=1.3332E-03*(10.**RLOGP)
+      RETURN
+      END
+C=    ----------------------------------------------------------
+      FUNCTION FCH4(TEMP,PP,X,IAGG,KALZG)
+
+C**** STOFFWERTROUTINE ZUR BERECHNUNG DER STOFFWERTE VON CH4
+C****   (WERTE AUS KNACKE/BARIN)
+      IMPLICIT DOUBLE PRECISION (A-H,O-Z)
+      CHARACTER*4 IAGG,KALZG
+      DATA A,B,C,D /2.975,18.329,0.346,-4.303/
+      DATA S298,TU /186.277,298.15/
+      DATA HMT /-74845.68/
+C****            (KJ/KMOL, KJ/KMOL K, K)
+      DATA RM /8.3143/
+C****
+      IF(IAGG.EQ.'G   ') GOTO 10
+      IF(IAGG.EQ.'    ') GOTO 10
+      GOTO 900
+   10 IF(KALZG.EQ.'ENTH') GOTO 100
+      IF(KALZG.EQ.'ENTR') GOTO 200
+      GOTO 900
+C**** ENTHPIE   (MJ/KMOL)
+  100 E=HMT+CMP(A,B,C,D,TEMP,TU)
+C     LIZHENG CORRECTED ON 27TH, JAN.,1998, SHOULD BE J/KMOL
+c      FCH4=E*1.0E-03
+      FCH4=E*1.0E03
+      RETURN
+C**** ENTROPIE   (KJ/KMOL K)
+  200 E=S298+CMPT(A,B,C,D,TEMP,TU)-RM*DLOG(PP/1.01325D05)
+      FCH4=E
+      RETURN
+  900 FCH4=0.0
+	IF(X.GT.0.0) WRITE(*,*)'X>0.0'
+      RETURN
+      END
+C=    ---------------------------------------------
+      FUNCTION FH2O(TEMP,PPP,X,IAGG,KALZG)
+
+C**** STOFFWERTEROUTINE ZUR BERECHNUNG DER STOFFWERTE VON H2O
+      IMPLICIT DOUBLE PRECISION (A-H,O-Z)
+      DIMENSION AV(9),AH(5),AL(70),BH(10),DD(7),AS(5),BS(10)
+      DOUBLE PRECISION IS,IH,MH2O
+      CHARACTER*4 IAGG,KALZG
+      DATA (AV(I),I=1,9) /4.7331E-03,2.93945E-03,4.35507E-06,
+     &                   6.70126E-04,3.17362E-05,8.06867E-05,
+     &                   1.55108,1.26591,1.32735/
+      DATA (AH(I),I=1,5) /2.0033277E+03,1.1698648E+03,
+     &                   -8.05536,73.76581,-13.02668/
+      DATA IH /221.287E+02/
+      DATA (AL(I),I=1,20) /.417,1.139709E-04,9.949927E-05,
+     &                    7.241165E-05,.7676621,1.052358E-11,
+     &                    3.7E+08,3.122199E+08,1.99985E+05,
+     &                    1.72,1.362926E+16,1.500705,
+     &                    .6537154,62.5,13.10268,1.5108E-05,
+     &                    6.1191876E-17,.58620689,.41666667,
+     &                    1.0226748E+16/
+      DATA (BH(I),I=1,10) /-3.74448692E+04,4.66453368E+05,
+     &                    -2.66687677E+06,9.03027153E+06,
+     &                    -1.97694002E+07,2.89492399E+07,
+     &                    -2.83099327E+07,1.78089426E+07,
+     &                    -6.53467601E+06,1.06519853E+06/
+      DATA (DD(I),I=1,7) /2.937E+05,5.426651,-2005.1,
+     &                   1.3869E-04,1.1965E-11,-0.0044,-0.0057148/
+      DATA (AS(I),I=1,5) /1.807299,10.696236,-2.488914E-02,
+     &                    1.709387E-01,-2.683287E-02/
+      DATA IS /34.1862/
+      DATA (BS(I),I=1,10) /720.613887,2206.37861,-8240.00235,
+     &                     20926.0116,-40721.7676,55903.8325,
+     &                     -52482.4968,32098.0993,-11537.4651,
+     &                     1851.30285/
+      DATA ACP,BCP,CCP,DCP /7.17,2.56,.08,0./
+      DATA AE,BE,CE,DE,EE,FE,GE
+     &     /2462.,1.207,3.857,-3.41E-03,4.9E-08,0.,0./
+      DATA T800C /1073.15/
+      DATA TKRIT,PKRIT,TTR/647.3,221.287,273.16/
+      DATA MH2O/18.0153/
+      FH2O=0.
+      PP=PPP/1.0D05
+C**** ERMITTELN DER ZU BERECHNENDEN GROESSE
+      T=TEMP/TKRIT
+      IF(TEMP.GT.T800C) T=T800C/TKRIT
+      T2=T*T
+      IKAL=1
+      IF(KALZG.EQ.'PART') GO TO 100
+      IF(KALZG.EQ.'SCHM') GO TO 200
+      P=PP/PKRIT
+      T3=T2*T
+      IF(X.LT.0. .OR.  X.GT.1.) GO TO 11
+      GO TO 600
+   11 IF(IAGG.EQ.'G   ') GO TO 10
+      IF(IAGG.EQ.'LS  ' .OR. IAGG.EQ.'SL  ') GO TO 40
+      IF(IAGG.EQ.'L   ') GO TO 20
+      IF(IAGG.EQ.'S   ') GO TO 30
+      IF(IAGG.EQ.'    ') GO TO 50
+      GO TO 900
+   10 IF(KALZG.EQ.'ENTH') GO TO 320
+      IF(KALZG.EQ.'ENTR') GO TO 420
+      GO TO 900
+   20 IF(KALZG.EQ.'ENTH') GO TO 340
+      IF(KALZG.EQ.'ENTR') GO TO 440
+      GO TO 900
+   30 IF(KALZG.EQ.'ENTH') GO TO 360
+      IF(KALZG.EQ.'ENTR') GO TO 460
+      GO TO 900
+   40 IF(TEMP.GT.TTR) GO TO 20
+      GO TO 30
+   50 IF(TEMP.GE.TKRIT) GO TO 10
+      IKAL=2
+      GO TO 100
+   51 IKAL=1
+      IF(PP.LT.P1) GO TO 10
+      IF(TEMP.GT.TTR) GO TO 20
+      GO TO 30
+C**** DAMPFDRUCKKURVE  P(T)  (BAR)
+  100 IF(TEMP.GT.TKRIT) GO TO 900
+      IF(TEMP.LT.TTR) GO TO 110
+      ALF=DD(7)*((TKRIT-TEMP)**(5./4.))
+      ALF=(10.**ALF)*DD(6)
+      X1=TEMP*TEMP-DD(1)
+      ALF=ALF+(10.**(DD(5)*X1*X1)-1.)*DD(4)*X1/TEMP
+	ALF=ALF+DD(2)+DD(3)/TEMP
+      P1=(T-.422)*(.577-T)*9.80665E-03*DEXP(-12.*T2*T2)
+      P1=P1+1.01325*(10.**ALF)
+      IF(IKAL-2) 101,51,610
+  110 P1=FPART(AE,BE,CE,DE,EE,FE,GE,TEMP)
+      IF(IKAL-2) 101,51,610
+  101 FH2O=P1
+      RETURN
+C**** SCHMELZTEMPRATUR    (KELVIN)
+  200 FH2O=TTR
+      RETURN
+C**** ENTHPIE     (WASSERDAMPFTAFEL)
+C**** =========      (ERGEBNIS   ==MJ/KMOL)
+C**** 1.)  GASFOERMIG
+  320 T282=T**2.82
+      E=(3.82*AV(1)/T282+1.82*AV(5)*(AV(7)-P/2.)*T282)*P
+      E=E+((5.*AV(2)-3.*AV(4)*P*(AV(8)*P-T3)/(T**14.))
+     &     +11.*AV(3)/(T**32.))*P*P*P
+      E=E*IH
+      E=-E+AH(1)+AH(2)*T+AH(3)*T2+AH(4)*T3+AH(5)*T2*T2
+      IF(TEMP.GT.T800C) 
+     &   E=E+(CMP(ACP,BCP,CCP,DCP,TEMP,T800C)/MH2O)
+      IF(IKAL.EQ.3) GO TO 612
+  310 FH2O=E*MH2O*1.0E-03-288.416
+C=    --------- 1992 - 03 - 25 -------- ( J/KMOL )
+      FH2O=FH2O*1.0E06
+      RETURN
+C**** 2.) FLUESSIG
+  340 T6=T**(-6.)
+      U=AL(7)-AL(8)*T2-AL(9)*T6
+      W=AL(10)*U*U+AL(11)*(P-AL(12)*T)
+      IF(W) 342,342,343
+  342 W=U
+      GO TO 344
+  343 W=U+DSQRT(W)
+  344 V=-2.*AL(8)*T2+6.*AL(9)*T6
+      IF(KALZG.EQ.'ENTR') GO TO 441
+      E=AL(18)*W-AL(19)*(3.4*U-V)
+      E=E*W+AL(20)*T-.72*V*U
+      E=E*AL(17)/(W**(1./3.4))
+      E=E+(-AL(2)+(AL(13)-T)*(AL(4)*(AL(13)+T)+AL(5)
+C** !!! AENDERUNG VOM 1.4.87: (AL(13)-T) KANN NEGATIV WERDEN !!!
+     &      *(((AL(13)-T)*(AL(13)-T))**4.)*(AL(13)+9.*T)))*P
+      E=E-AL(6)*(AL(16)+12.*(T**11.))/(AL(16)+(T**11.))
+     &      /(AL(16)+(T**11.))*P*(AL(14)+AL(17)/2.*P+P*P/3.)
+      E=E*IH
+      E=E+BH(1)+BH(2)*T+BH(3)*T2
+      DO 341 I=4,10
+      BEX=FLOAT(I-1)
+  341 E=E+BH(I)*(T**BEX)
+      IF(IKAL-2) 310,622,611
+C**** 3.) FEST
+  360 E=-633.+TEMP*(.19780624+TEMP*(.79979727E-04+TEMP*
+     &      (.23699831E-04+TEMP*(-.43875026E-07))))
+      IF(IKAL-2) 310,621,611
+
+C**** ENTROPIE     (WASSERDAMPFTAFEL  ==  KJ/KG K
+C**** ========      ERGEBNIS          ==  KJ/KMOL K  )
+C**** 1.) GASFOERMIG
+  420 E=14./3.*AV(2)-(2.8*AV(8)*P-2.75*T3)*AV(4)*P
+      E=E/(T**15.)+32.*AV(3)/(3.*(T**33.))
+      E=E*P*P*P
+      E=E+2.82*AV(1)*P/(T**3.82)
+      E=E+(AV(7)-.5*P)*2.82*AV(5)*(T**1.82)*P
+      E=E-AV(6)*(1.-AV(9)*.5*P)*P
+      E=E*IS
+      E=-IS*1.34992E-02*DLOG(P/2.760E-05)-E
+      E=E+AS(1)*DLOG(T)+AS(2)+AS(3)*T+AS(4)*T2+AS(5)*T3
+      IF(TEMP.GT.T800C) E=E+(CMPT(ACP,BCP,CCP,DCP,TEMP,T800C)/MH2O)
+      IF(IKAL.EQ.3) GO TO 612
+  410 FH2O=(E+3.5214)*MH2O
+      RETURN
+C**** 2.) FLUESSIG
+  440 GO TO 340
+  441 E=AL(16)+T**11.
+      E=P*11.*(T**10.)*AL(6)/(E*E)
+      E=E*(AL(14)+(AL(15)*.5+P/3.)*P)
+      E=((AL(4)+5.*AL(5)*AL(13)-T)**8.)*(AL(13)-T)*2.-AL(3)*P-E
+      E=E+(AL(19)*V*W+AL(20)*T-.72*V*U)*AL(17)/(T*W**(1./3.4))
+      E=E*IS+BS(1)*DLOG(T)+BS(2)+BS(3)*T+BS(4)*T2+BS(5)*T3+
+     &      BS(6)*T2*T2+BS(7)*T2*T3+BS(8)*T3*T3+BS(9)*T2*T2*T3+
+     &      BS(10)*T2*T3*T3
+      IF(IKAL-2) 410,622,611
+C**** 3.) FEST
+  460 E=-3.5214+TEMP*(.99137202E-02+TEMP*(-.82414217E-05+TEMP*
+     &      .10203955E-07))
+      IF(IKAL-2) 410,621,611
+C**** BERECHNUNG BEI GEGEBENEM DAMPFANTEIL (FLUESSIGKEITSANTEIL)
+  600 IKAL=3
+      IF(IAGG.EQ.'G   ' .OR. IAGG.EQ.'L   ') GO TO 100
+      GO TO 620
+  610 PP=P1
+      P=PP/PKRIT
+      IF(TEMP.LT.TTR) GO TO 30
+      GO TO 20
+  611 FH2O=FH2O+(1.-X)*E
+      GO TO 10
+  612 E=FH2O+X*E
+  613 IF(KALZG.EQ.'ENTH') GO TO 310
+      IF(KALZG.EQ.'ENTR') GO TO 410
+      GO TO 900
+  620 IKAL=2
+      GO TO 30
+  621 FH2O=FH2O+(1.-X)*E
+      GO TO 20
+  622 E=FH2O+X*E
+      GO TO 613
+C**** FEHLERMELDUNG
+  900 WRITE(7,1000) TEMP,PP,X,IAGG,KALZG
+ 1000 FORMAT(///5X,45HH2O-STOFFWERT KANN NICHT BERECHNET WERDEN
+     &       /6X,11HPARAMETER = ,3(E10.3,2X),A4,2X,A4)
+      FH2O=0.
+      RETURN
+      END
+
+

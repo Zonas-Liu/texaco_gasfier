@@ -1,0 +1,140 @@
+C|-----------------------------------------------------------------|
+C|   水煤浆气化炉（Texaco）仿真程序								 |    
+C|-----------------------------------------------------------------|
+      PROGRAM  TEXACO_GASIFIER
+      IMPLICIT DOUBLE PRECISION (A-H,O-Z)
+      INCLUDE 'COMMON.00'
+      INCLUDE 'COMMON.01'
+      INCLUDE 'COMMON.02'
+      INCLUDE 'COMMON.03'
+
+C     DIMENSION KK(5)
+C	DATA KK/1,10,20,30,40/
+      OPEN (UNIT=1,FILE='GASTEST.DAT',STATUS='UNKNOWN')
+C	DO 21 LI=1,5
+C	XVM=0.05*LI
+C	DO 11 II=1,4
+C	FOXY=0.9+0.02*II
+C	DO 12 III=1,3
+C	RATIO_COAL=5.8D-01+0.02*III
+C	DO 13 IIII=0,4
+C	OX_PART=1.0-0.05*IIII
+C	DO 14 KKK=1,5
+C	PWK=1.0D+05*KK(KKK)
+C	PFEED_OX=PWK+5.0D+05
+C	PFEED_SL=PWK+5.0D+05
+C	PFEED_CO2=PWK+5.0D+05 
+C	DO 15 I9=6,24,2
+C	N2FED=I9
+C	OX_PART=0.1*I9
+C	RATIO_CO2=1-OX_PART
+      
+      ITERAT=0
+C	*****初始化程序	 EINGAB		*****C
+C	*****矩阵赋值	 GASIFIER	*****C
+C	*****计算程序	 NEWTRA		*****C
+C	*****结果输出程序 KOLERG		*****C
+      CALL EINGAB
+      DO 100 I=1,ITMAX
+      ITERAT=ITERAT+1
+      KONVER=0
+      CALL GASIFIER
+      KONVER=0
+      CALL NEWTRA
+      
+C     Calculate residuals for convergence history
+      SUMFE=0.0D0
+      DO 10 II=NZEL1,NZEL2
+      DO 11 J=1,NVE
+   11 SUMFE=SUMFE+DABS(DMAT(J,II))
+   10 CONTINUE
+      
+      SUMWE=0.0D0
+      DO 60 II=NZEL1,NZEL2
+   60 SUMWE=SUMWE+DABS(DMAT(NSGP,II))
+      
+      SUMX=0.0D0
+      DO 40 II=NZEL1,NZEL2
+   40 SUMX=SUMX+DABS(DMAT(NSGP1,II))
+      
+      SUMT=0.0D0
+      IF(KTRLT.EQ.1) THEN
+        DO 50 II=NZEL1,NZEL2
+   50   SUMT=SUMT+DABS(DMAT(NSGP1+1,II))
+      ENDIF
+      
+C     Write to GASTEST.DAT and screen
+      WRITE(1,2000) ITERAT, KONVER, SUMFE, SUMWE, SUMX, SUMT
+      WRITE(*,2001) ITERAT, KONVER, SUMFE, SUMWE, SUMX, SUMT
+ 2000 FORMAT(I6,I6,4E14.4)
+ 2001 FORMAT(6HIter:,I4,4H K=,I1,5H FE=,E10.3,5H WE=,E10.3,
+     &       4H X=,E10.3,4H T=,E10.3)
+      
+      IF (KONVER.EQ.0)  THEN
+        CALL KOLERG
+      GOTO 110
+      ENDIF
+      IF (ITERAT.EQ.ITMAX) THEN
+        WRITE(1,*) ' MAX. ITERATIONS'
+            WRITE(*,*) ' MAX. ITERATIONS'
+            CALL KOLERG
+            GOTO 110
+      ENDIF
+100   CONTINUE
+110   CONTINUE
+C15	CONTINUE
+C14	CONTINUE
+C13	CONTINUE
+C12	CONTINUE
+C11	CONTINUE
+C21	CONTINUE
+      CLOSE(UNIT=1)
+      END
+
+CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC
+C 计算每个小室固体物质质量XMS(I) 
+CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC
+      SUBROUTINE XMASS
+      IMPLICIT DOUBLE PRECISION (A-H,O-Z)
+      INCLUDE 'COMMON.00'
+      INCLUDE 'COMMON.01'
+      INCLUDE 'COMMON.02'
+
+      FASH=ELAS/(ELC+ELH+ELO+ELN+ELS)
+c	ROSVM=ROS0*(1+FASH-XCVM0)/(1+FASH)
+      ROSVM=ROS0
+C	平均停留时间 TRZ(I)
+      SUM_TRZ=0.0
+      DO 880 I=NZRA,NZRE 
+         ROG(I)=353.5/T(I)                  
+         FOC=1.0-FASH*X(I)/(1.0-X(I))
+         IF(FOC.GT.1.0) FOC=1.0
+         ROS(I)=ROS0*(1+FASH-FOC)/(1+FASH)
+         XMUG(I)=ROG(I)*(12.2+0.0261*(T(I)-273.15)**1.2616)*1.0D-6
+         B=18.0*XMUG(I)/ROS(I)/DP/DP 
+         UT=(ROS(I)-ROG(I))*G/B/ROS(I)	
+         IF(I.EQ.NZRA) THEN
+      USI=(WFC(I)+WFA(I))/ROSVM/AT(I)
+         ELSE
+      USI=((WFC(I)+WFA(I))/ROSVM+WE(I-1)/ROS(I-1))/AT(I)
+         ENDIF
+         TRZ1=0.05
+888   CONTINUE
+        US(I)=USI*EXP(-B*TRZ1)+(U0(I)+UT)*(1.0-EXP(-B*TRZ1))
+        TRZ2=DELZ(I)/US(I)
+      IF(DABS((TRZ1-TRZ2)/TRZ1).GT.1.0E-5) THEN
+        TRZ1=TRZ2
+      GOTO 888
+      ENDIF
+     	TRZ(I)=TRZ1
+      SUM_TRZ=SUM_TRZ+TRZ(I)
+880   CONTINUE 	
+      SUM_XMS=0.0
+      DO 885 I=NZRA,NZRE
+      XMS(I)=WE(I)*TRZ(I)
+      EPS(I)=1.0-XMS(I)/ROS(I)/(AT(I)*DELZ(I))
+      SUM_XMS=SUM_XMS+XMS(I)
+885   CONTINUE
+C	每个小室固体物质质量
+      RETURN
+      END
