@@ -23,6 +23,7 @@ wheels/
 # PyInstaller
 *.manifest
 *.spec
+!TEXACO_GUI.spec
 
 # Unit test / coverage
 htmlcov/
@@ -66,6 +67,7 @@ Thumbs.db
 build/
 dist/
 *.spec
+!TEXACO_GUI.spec
 
 # Logs
 *.log
