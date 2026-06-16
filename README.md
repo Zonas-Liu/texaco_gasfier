@@ -638,3 +638,49 @@ O₂扩散系数 [kmol/(m²·Pa·s)]
 ---
 
 *最后更新: 2026-03-23*
+
+
+---
+
+## Streamlit 前端界面
+
+项目新增了基于 Streamlit 的 Web 前端，用于交互式编辑输入参数、运行模拟并可视化结果。
+
+### 安装依赖
+
+```bash
+python -m venv .venv
+# Windows
+.venv\Scripts\pip install -r requirements.txt
+# Linux/macOS
+.venv/bin/pip install -r requirements.txt
+```
+
+### 启动前端
+
+```bash
+# Windows
+.venv\Scripts\streamlit run app.py
+# 或双击 run_app.bat
+
+# Linux/macOS
+.venv/bin/streamlit run app.py
+# 或 ./run_app.sh
+```
+
+启动后打开浏览器访问 `http://localhost:8501`。
+
+### 主要功能
+
+- **侧边栏参数编辑**：修改 `data/Datain0.dat` 中的所有输入参数
+- **保存输入**：将修改后的参数写回 `data/Datain0.dat`
+- **运行模拟**：调用 `src/main.py` 执行 TEXACO 模拟
+- **结果展示**：
+  - 出口温度、碳转化率、收敛迭代次数卡片
+  - 收敛历史表格与曲线
+  - 合成气干气成分与体积流量表格/柱状图
+  - 沿炉膛内部参数分布表格与曲线
+  - 气体成分沿炉膛分布表格与曲线
+  - 原始 `GASTEST.DAT` 输出查看
+
+*前端添加日期: 2026-06-15*
