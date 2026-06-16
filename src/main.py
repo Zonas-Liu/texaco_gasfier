@@ -5,7 +5,6 @@ TEXACO气化炉CFD模拟 - 主程序 (残差输出版)
 对应Fortran主程序: PROGRAM TEXACO_GASIFIER
 """
 
-import numpy as np
 from common.common_data import common
 from subroutines.initialization import eingab
 from subroutines.gasifier_main import gasifier
@@ -14,7 +13,7 @@ from subroutines.output_results import kolerg
 
 # Import reaction rate functions
 from functions.gas_reactions import xk1, xk2, xk3, xk4, xk5, xk6
-from functions.reaction_rates import A1, A2, A3, A4, A5, PHI, RI, ENTHP
+from functions.reaction_rates import A1, A2, A3, A4, A5, PHI, RI, ENTHP, WDKR
 from subroutines.mass_flow import xmass
 from subroutines.output_results import entfed, entkol
 
@@ -28,25 +27,26 @@ def calculate_residuals():
     DMAT[1:8,:] 对应气体组分方程 (O2, CH4, CO, CO2, H2S, H2, N2, H2O)
     """
     # SUMFE: 气体组分残差 (J=1 to NVE)
+    # 注意: Python中数组索引1..30对应Fortran的1..30(NZEL1=1,NZEL2=30)
     sumfe = 0.0
-    for i in range(common.NZEL1 - 1, common.NZEL2):
-        for j in range(1, common.NVE + 1):  # FIXED: 从1开始，不是0
+    for i in range(common.NZEL1, common.NZEL2 + 1):
+        for j in range(1, common.NVE + 1):
             sumfe += abs(common.DMAT[j, i])
     
     # SUMWE: 固体质量流残差 (Fortran NSGP = 9)
     sumwe = 0.0
-    for i in range(common.NZEL1 - 1, common.NZEL2):
+    for i in range(common.NZEL1, common.NZEL2 + 1):
         sumwe += abs(common.DMAT[common.NSGP, i])
     
     # SUMX: 碳转化率残差 (Fortran NSGP1 = 10)
     sumx = 0.0
-    for i in range(common.NZEL1 - 1, common.NZEL2):
+    for i in range(common.NZEL1, common.NZEL2 + 1):
         sumx += abs(common.DMAT[common.NSGP1, i])
     
     # SUMT: 温度残差 (Fortran NVWS = 11)
     sumt = 0.0
     if common.KTRLT == 1:
-        for i in range(common.NZEL1 - 1, common.NZEL2):
+        for i in range(common.NZEL1, common.NZEL2 + 1):
             sumt += abs(common.DMAT[common.NVWS, i])
     
     return sumfe, sumwe, sumx, sumt
@@ -109,7 +109,8 @@ def main():
     common.ITERAT = 0
     
     # 调用EINGAB进行初始化 (对应Fortran: CALL EINGAB)
-    eingab()
+    # 传入output_file以便将运行条件写入GASTEST.DAT
+    eingab(output_file=output_file)
     
     # 写入残差历史表头
     output_file.write('\n')
@@ -120,7 +121,6 @@ def main():
     output_file.write('-' * 60 + '\n')
     
     # 主迭代循环 (对应Fortran: DO 100 I=1,ITMAX)
-    converged = False
     for iteration in range(1, common.ITMAX + 1):
         # 增加迭代计数
         common.ITERAT = common.ITERAT + 1
@@ -136,7 +136,8 @@ def main():
             xk1_func=xk1, xk2_func=xk2, xk3_func=xk3, xk4_func=xk4, xk5_func=xk5, xk6_func=xk6,
             a1_func=A1, a2_func=A2, a3_func=A3, a4_func=A4, a5_func=A5,
             phi_func=PHI, ri_func=RI,
-            enthp_func=ENTHP
+            enthp_func=ENTHP,
+            wdkr_func=WDKR
         )
         
         # 第一次迭代时打印矩阵（用于与Fortran对比）
@@ -165,7 +166,6 @@ def main():
             output_file.write(f'收敛完成! (Converged at iteration {common.ITERAT})\n')
             output_file.write('=' * 60 + '\n')
             kolerg(output_file)
-            converged = True
             break
         
         # 检查是否达到最大迭代次数

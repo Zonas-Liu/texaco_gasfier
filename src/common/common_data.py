@@ -58,7 +58,7 @@ class CommonData:
         self.NPRIX = 1
         self.NZFR = 0
         self.NZFED = 0
-        self.N2FED = 6
+        self.N2FED = 7  # 与 Fortran N2FED=7 保持一致
         self.NZR4 = 23
         self.NZR5 = 16
         self.NZR6 = 9

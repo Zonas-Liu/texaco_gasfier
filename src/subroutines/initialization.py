@@ -17,13 +17,14 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 from common.common_data import common
 
 
-def eingab(data_path='data/Datain0.dat'):
+def eingab(data_path='data/Datain0.dat', output_file=None):
     """
     输入数据和初始化子程序
     对应Fortran的EINGAB子程序
     
     参数:
         data_path: 输入数据文件路径(相对项目根目录)
+        output_file: 输出文件对象,如果提供则将运行条件写入该文件
     
     功能:
         - 读取输入参数文件
@@ -31,6 +32,7 @@ def eingab(data_path='data/Datain0.dat'):
         - 计算派生量(流量、几何等)
         - 调用GEOMETRY和QHCRCT
         - 初始化未知数
+        - 输出运行条件到文件(与Fortran一致)
     """
     # 设置分子量 (DATA语句) [kg/kmol]
     # XMOL: O2, CH4, CO, CO2, H2S, H2, N2, H2O, C, TAR
@@ -58,7 +60,7 @@ def eingab(data_path='data/Datain0.dat'):
     common.NZR7 = 5   # Fortran 5
     
     # 进料相关参数
-    common.N2FED = 6  # Fortran N2FED=7
+    common.N2FED = 7  # Fortran N2FED=7
     common.NZRA = 1   # Fortran NZRA=1 (1-based indexing)
     common.NPRIX = 1  # Fortran NPRIX=1
     nzfed0 = 1  # Fortran nzfed0=1 (number of feed cells)
@@ -312,6 +314,17 @@ def eingab(data_path='data/Datain0.dat'):
     print(f'     二次进料所在小格号:   {common.N2FED:15d}')
     
     print('???????????????  END OF EINGAB  ???????????????')
+    
+    # 将运行条件写入输出文件(与Fortran EINGAB中的WRITE(1,210)/WRITE(1,220)对应)
+    if output_file is not None:
+        output_file.write('\n    4.运行条件\n')
+        output_file.write(f'      水煤浆浓度:           {common.RATIO_COAL*100.:15.6f} %\n')
+        output_file.write(f'      给煤量:               {common.BSMS:15.6f} KG/S\n')
+        output_file.write(f'      氧煤比:               {common.FOXY:15.6f} KG O2/KG BSWAF\n')
+        output_file.write(f'      氧气体积流量:         {common.FOX:15.6f} NM3/S\n')
+        output_file.write(f'      一段氧气比例：        {common.OX_PART:15.6f}\n')
+        output_file.write(f'      加入CO2比例：         {common.RATIO_CO2:15.6f}\n')
+        output_file.write(f'      二次氧气加入小室号：  {common.N2FED:5d}\n')
 
 
 def _read_start_file(filepath):

@@ -122,7 +122,8 @@ def kolerg(output_file=None):
     fash = common.ELAS / (common.ELC + common.ELH + common.ELO + common.ELN + common.ELS)
     
     # 遍历所有格子输出参数
-    for i in range(common.NZEL1, common.NZEL2 + 1):  # 转换为0-based索引
+    # 注意: Python中数组索引1..30对应Fortran的1..30(NZEL1=1,NZEL2=30)
+    for i in range(common.NZEL1, common.NZEL2 + 1):
         sum_wfc += common.WFC[i]
         
         # 氧气摩尔分数
@@ -141,8 +142,8 @@ def kolerg(output_file=None):
         sum_xms += common.XMS[i]
         sum_trz += common.TRZ[i]
         
-        # 输出当前格子数据
-        outfile.write(f"{i+1:>4d} {common.H[i]:>8.3f} {common.U0[i]:>10.3f} "
+        # 输出当前格子数据(索引i直接对应Fortran的I,不使用i+1)
+        outfile.write(f"{i:>4d} {common.H[i]:>8.3f} {common.U0[i]:>10.3f} "
                       f"{sum_trz:>12.3f} {common.WE[i]:>12.3f} "
                       f"{common.T[i]-273.15:>10.3f} {foc*100:>12.3f}\n")
     
@@ -161,7 +162,8 @@ def kolerg(output_file=None):
             mf = common.FEMF[j, i] / common.FEM[i] * 100.0 if common.FEM[i] > 0 else 0.0
             mole_fracs.append(mf)
         
-        outfile.write(f"{i+1:>4d} " + " ".join([f"{mf:>8.3f}" for mf in mole_fracs]) + "\n")
+        # 索引i直接对应Fortran的I,不使用i+1
+        outfile.write(f"{i:>4d} " + " ".join([f"{mf:>8.3f}" for mf in mole_fracs]) + "\n")
     
     # 计算出口气体摩尔分数
     y = np.zeros(9)
@@ -215,12 +217,12 @@ def kolerg(output_file=None):
             # 输出温度T
             for i in range(common.NZEL1, common.NZEL2 + 1):
                 f.write(f"{common.T[i]:16.6e}\n")
-            # 输出碳转化率X
+            # 输出碳转化率X(与Fortran一致,每行一个值)
             for i in range(common.NZEL1, common.NZEL2 + 1):
-                f.write(f"{common.X[i]:15.6e}  {0.0:15.6e}\n")
-            # 输出碳流量WE
+                f.write(f"{common.X[i]:15.6e}\n")
+            # 输出碳流量WE(与Fortran一致,每行一个值)
             for i in range(common.NZEL1, common.NZEL2 + 1):
-                f.write(f"{common.WE[i]:15.6e}  {0.0:15.6e}\n")
+                f.write(f"{common.WE[i]:15.6e}\n")
     except Exception as e:
         outfile.write(f"\n警告: 无法写入START.DAT文件: {e}\n")
 

@@ -16,15 +16,6 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 from common.common_data import common
 
-# 导入其他子程序 (将在需要时导入)
-# from subroutines.xmass import xmass
-# from subroutines.entfed import entfed
-# from subroutines.entkol import entkol
-# from subroutines.reaction_rates import xk1, xk2, xk3, xk4, xk5, xk6
-# from subroutines.char_reactions import a1, a2, a3, a4, a5
-# from subroutines.auxiliary import phi, ri
-
-
 def _calculate_dmat_for_cell(
     i,
     xmass_func,
@@ -178,8 +169,6 @@ def _calculate_dmat_for_cell(
     common.DMAT[3, i] += ra4 * 2.0
     common.DMAT[3, i] -= ra5
     
-    # DEBUG OUTPUT disabled for production run
-    
     # ---------------------------------------------------------
     # DMAT(4,I): CO2平衡方程
     # ---------------------------------------------------------
@@ -299,8 +288,6 @@ def _calculate_dmat_for_cell(
     if common.KTRLT == 1:
         nvws = common.NVWS
         
-        pass
-        
         # 上游单元格流入的能量
         if i != common.NZRA:
             common.DMAT[nvws, i] = (
@@ -313,7 +300,6 @@ def _calculate_dmat_for_cell(
                 common.FEMF[7, i - 1] * common.HENTH[7, i - 1] +
                 common.FEMF[8, i - 1] * common.HENTH[8, i - 1]
             )
-            pass
         else:
             common.DMAT[nvws, i] = 0.0
         
@@ -348,7 +334,6 @@ def _calculate_dmat_for_cell(
             common.FEMF[7, i] * common.HENTH[7, i] +
             common.FEMF[8, i] * common.HENTH[8, i]
         )
-        # Debug output removed
         common.DMAT[nvws, i] -= outflow_term
         
         # 固体颗粒流入的能量
@@ -375,7 +360,6 @@ def _calculate_dmat_for_cell(
             common.X[i] * common.HENTH[9, i] +
             (1.0 - common.X[i]) * common.HENTH[10, i]
         )
-        pass  # Debug output removed
         common.DMAT[nvws, i] -= particle_out_term
         common.DMAT[nvws, i] += (
             common.RVTAR[0] * common.XMTAR * common.KCHECK *
@@ -632,8 +616,6 @@ def gasifier(
         # ============================================================
         if common.KTRLT == 1:
             if i != common.NZRA:
-                # 注意：AMAT对角元素不再强制设为1.0
-                # 保留数值微分计算的值（包含CO2方程的5/6系数）
                 # 固体质量平衡项
                 common.AMAT[common.NSGP, common.NSGP, i - 1] = 1.0
                 common.AMAT[common.NSGP, common.NSGP1, i - 1] = 0.0
@@ -680,160 +662,6 @@ def gasifier(
             common.DMAT[j, i] = -common.DMAT[j, i]
         
         # 累加总反应速率
-        sum_ri += rri
-    
-    # ============================================================
-    # 9. 变量缩放已禁用 - 为了与Fortran 1:1对比
-    # ============================================================
-    # apply_variable_scaling()  # 暂时禁用缩放
-    
-    return sum_ri
-
-
-def apply_variable_scaling():
-    """
-    应用行缩放以改善矩阵条件数
-    仅对能量方程(第11行)进行行缩放。
-    """
-    WE_SCALE = 1.0e6  # 能量缩放因子
-    
-    for i in range(common.NZEL1, common.NZEL2 + 1):
-        # 行缩放：第11行除以WE_SCALE
-        common.DMAT[11, i] /= WE_SCALE
-        
-        for j in range(1, 12):
-            common.BMAT[11, j, i] /= WE_SCALE
-            common.AMAT[11, j, i] /= WE_SCALE
-            common.CMAT[11, j, i] /= WE_SCALE
-
-
-def restore_variable_scaling():
-    """
-    恢复变量缩放 - 求解后恢复解向量的第11个分量
-    
-    注意：求解后的值已经正确，但如果需要调整，这里乘以WE_SCALE
-    因为在求解过程中，行缩放的影响需要被补偿
-    """
-    WE_SCALE = 1.0e6
-    
-    for i in range(common.NZEL1, common.NZEL2 + 1):
-        common.DMAT[11, i] *= WE_SCALE
-    
-
-
-
-def restore_all_scaling():
-    """
-    恢复所有缩放 - 在BLKTRD回代前调用
-    恢复BMAT/AMAT/CMAT的第11行和DMAT的第11行
-    """
-    WE_SCALE = 1.0e6
-    
-    for i in range(common.NZEL1, common.NZEL2 + 1):
-        # 恢复DMAT第11行
-        common.DMAT[11, i] *= WE_SCALE
-        
-        # 恢复BMAT/AMAT/CMAT的第11行
-        for j in range(1, 12):
-            common.BMAT[11, j, i] *= WE_SCALE
-            common.AMAT[11, j, i] *= WE_SCALE
-            common.CMAT[11, j, i] *= WE_SCALE
-    
-
-
-
-def gasifier_simple(
-    reaction_funcs,
-    enthp_func,
-    wdkr_func=None
-):
-    """
-    GASIFIER简化版本 - 用于初步测试
-    
-    参数:
-        reaction_funcs: 包含所有反应速率函数的字典
-        enthp_func: 焓值计算函数
-        wdkr_func: 热传导系数函数 (可选)
-    
-    返回:
-        sum_ri: 总反应速率
-    """
-    sum_ri = 0.0
-    
-    for i in range(common.NZRA, common.NZRE + 1):
-        # 初始化
-        for k in range(1, common.NVWS + 1):
-            common.DMAT[k, i] = 0.0
-            for l in range(1, common.NVWS + 1):
-                common.AMAT[k, l, i] = 0.0
-                common.BMAT[k, l, i] = 0.0
-                common.CMAT[k, l, i] = 0.0
-        
-        # 计算总摩尔流量
-        common.FEM[i] = 0.0
-        for j in range(1, common.NGAS + 1):
-            common.FEM[i] += common.FEMF[j, i]
-        
-        # 计算气体速度
-        for ii in range(common.NZRA, common.NZRE + 1):
-            common.U0[ii] = common.FEM[ii] * common.RAG * common.T[ii] / (common.PWK * common.AT[ii])
-        
-        # 计算摩尔分数
-        for j in range(1, common.NGAS + 1):
-            if common.FEM[i] > 0:
-                common.Y[j] = common.FEMF[j, i] / common.FEM[i]
-            else:
-                common.Y[j] = 0.0
-        
-        # 计算反应速率
-        if common.KTRLR == 1:
-            rxk1 = reaction_funcs['xk1'](i)
-            rxk2 = reaction_funcs['xk2'](i)
-            rxk3 = reaction_funcs['xk3'](i)
-            rxk4 = reaction_funcs['xk4'](i)
-            rxk5 = reaction_funcs['xk5'](i)
-            rxk6 = reaction_funcs['xk6'](i)
-            
-            ra1 = reaction_funcs['a1'](i)
-            ra2 = reaction_funcs['a2'](i)
-            ra3 = reaction_funcs['a3'](i)
-            ra4 = reaction_funcs['a4'](i)
-            ra5 = reaction_funcs['a5'](i)
-            
-            rri = reaction_funcs['ri'](i)
-            common.RAC[i] = rri
-        else:
-            rxk1 = rxk2 = rxk3 = rxk4 = rxk5 = rxk6 = 0.0
-            ra1 = ra2 = ra3 = ra4 = ra5 = 0.0
-            rri = 0.0
-            common.RAC[i] = rri
-        
-        rphi = reaction_funcs['phi'](i)
-        
-        # 构建DMAT (简化版本 - 仅基本质量平衡)
-        for j in range(1, common.NGAS + 1):
-            common.DMAT[j, i] = 0.0
-            if i != common.NZRA:
-                common.DMAT[j, i] += common.FEMF[j, i - 1]
-            common.DMAT[j, i] -= common.FEMF[j, i]
-        
-        # 固体质量平衡
-        nsgp = common.NSGP
-        common.DMAT[nsgp, i] = common.WFC[i] + common.WFA[i]
-        if i != common.NZRA:
-            common.DMAT[nsgp, i] += common.WE[i - 1]
-        common.DMAT[nsgp, i] -= common.WE[i] + rri
-        
-        # 碳转化率平衡
-        nsgp1 = common.NSGP1
-        common.DMAT[nsgp1, i] = common.WFC[i]
-        if i != common.NZRA:
-            common.DMAT[nsgp1, i] += common.WE[i - 1] * common.X[i - 1]
-        common.DMAT[nsgp1, i] -= common.WE[i] * common.X[i] + rri
-        
-        # DMAT不取负 (与Fortran保持一致)
-        # (移除取负操作，2026-03-17)
-        
         sum_ri += rri
     
     return sum_ri

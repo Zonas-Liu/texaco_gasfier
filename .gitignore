@@ -54,6 +54,7 @@ venv.bak/
 
 # TEXACO specific
 GASTEST.DAT
+START.DAT
 python_matrix_iter0.txt
 *.DAT.backup
 

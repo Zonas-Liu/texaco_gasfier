@@ -5,12 +5,12 @@
 """
 from .initialization import eingab, geometry, qhcrct
 from .mass_flow import xmass
-from .gasifier_main import gasifier, gasifier_simple
+from .gasifier_main import gasifier
 from .output_results import kolerg, entkol, entfed, kontr, hcrt, tpar, tpar1
 
 __all__ = [
     'eingab', 'geometry', 'qhcrct',
     'xmass',
-    'gasifier', 'gasifier_simple',
+    'gasifier',
     'kolerg', 'entkol', 'entfed', 'kontr', 'hcrt', 'tpar', 'tpar1'
 ]

@@ -7,8 +7,8 @@
 ## 文档信息
 
 - **创建日期**: 2026-03-17
-- **最后更新**: 2026-03-20
-- **项目版本**: 1.0 Final+
+- **最后更新**: 2026-06-15
+- **项目版本**: 1.1 Final+
 
 ---
 
@@ -43,6 +43,8 @@
 | ISS-027 | 整体收敛迭代测试 | 🟡 Medium | **进行中** |
 | ISS-028 | Fortran收敛历史输出功能 | 🟢 Feature | **已完成** |
 | ISS-029 | Python残差计算与松弛因子修复 | 🔴 Critical | **已修复** |
+| ~~ISS-030~~ | ~~WDKR壁面热损失未传入~~ | ~~🔴 Critical~~ | **已修复** |
+| ~~ISS-031~~ | ~~代码清理与冗余移除~~ | ~~🟢 Maintenance~~ | **已完成** |
 
 ### 当前状
 - **矩阵组装(1e-6容差)**:: **BMAT 99.26%, AMAT 90.91%, DMAT 90.91%通过**
@@ -5869,3 +5871,78 @@ SUMT (对数坐标)
 *最后更新**: 2026-03-20*  
 *版本: v1.1 (收敛验证通过)*
 
+
+
+---
+
+### ISS-030: WDKR 壁面热损失未传入 (已修复)
+
+**发现日期**: 2026-06-15  
+**修复日期**: 2026-06-15  
+**严重级别**: 🔴 Critical
+
+#### 问题描述
+Python 版本 `src/main.py` 调用 `gasifier()` 时未传入 `wdkr_func` 参数，导致壁面热损失项 `QKW(I)` 在能量方程中始终为 0，而 Fortran 版本始终调用 `WDKR(T(I), TW)` 计算该项。
+
+#### 影响
+- Case 1 出口温度偏高约 0.95%
+- Case 1 CH4 干气%偏高约 6.98%
+- Case 2 出口温度偏高约 0.73%
+- Case 2 CH4 干气%偏高约 3.19%
+
+#### 修复方案
+在 `src/main.py` 中导入 `WDKR` 并传入 `gasifier()`：
+```python
+from functions.reaction_rates import ..., WDKR
+
+gasifier(
+    ...,
+    enthp_func=ENTHP,
+    wdkr_func=WDKR
+)
+```
+
+#### 验证结果
+重新运行 Case 1 / Case 2 后：
+| 指标 | Case 1 误差 | Case 2 误差 |
+|------|-------------|-------------|
+| 出口温度 | 0.0000% | 0.0000% |
+| CH4 干气% | 0.0000% | 0.0000% |
+| CO/CO2/H2S/H2/N2 干气% | 0.0000% | 0.0000% |
+
+收敛迭代次数也一致：Case 1 为 64 次，Case 2 为 62 次。
+
+#### 状态: **已修复**
+
+---
+
+### ISS-031: 代码清理与冗余移除 (已完成)
+
+**发现日期**: 2026-06-15  
+**完成日期**: 2026-06-15  
+**严重级别**: 🟢 Maintenance
+
+#### 清理内容
+1. **删除未使用函数** (`src/subroutines/gasifier_main.py`)
+   - `apply_variable_scaling()`
+   - `restore_variable_scaling()`
+   - `restore_all_scaling()`
+   - `gasifier_simple()`
+2. **更新模块导出** (`src/subroutines/__init__.py`)
+   - 移除 `gasifier_simple` 导出
+3. **清理导入** (`src/main.py`)
+   - 移除未使用的 `numpy as np`
+   - 移除未使用的 `converged` 变量
+4. **清理调试注释** (`src/subroutines/gasifier_main.py`)
+   - 移除 `DEBUG OUTPUT disabled`、`Debug output removed`、`pass` 等死代码注释
+5. **更新 `.gitignore`**
+   - 添加 `START.DAT` 到忽略列表
+6. **删除临时文件**
+   - 根目录 `GASTEST.DAT`、`python_matrix_iter0.txt`、`START.DAT`
+   - `numeric_test/python_output/case1_run.log`、`case2_run.log`
+
+#### 状态: **已完成**
+
+---
+
+*最后更新: 2026-06-15*
