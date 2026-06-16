@@ -394,8 +394,51 @@ def calculate_wet_syngas(dry_flow, gas_profile_last):
 # ---------------------------------------------------------------------------
 # 运行模拟
 # ---------------------------------------------------------------------------
+class _MockProcess:
+    """用于模拟 subprocess.CompletedProcess 的简单容器。"""
+    def __init__(self, returncode, stdout, stderr):
+        self.returncode = returncode
+        self.stdout = stdout
+        self.stderr = stderr
+
+
+def _run_simulation_direct():
+    """在 PyInstaller 打包环境中直接调用 src.main.main()。"""
+    import io
+
+    src_path = str(ROOT / "src")
+    if src_path not in sys.path:
+        sys.path.insert(0, src_path)
+
+    # 确保工作目录为项目根目录，以便生成 GASTEST.DAT 等文件
+    original_cwd = os.getcwd()
+    os.chdir(str(ROOT))
+
+    stdout_capture = io.StringIO()
+    stderr_capture = io.StringIO()
+    old_stdout, old_stderr = sys.stdout, sys.stderr
+
+    try:
+        sys.stdout, sys.stderr = stdout_capture, stderr_capture
+        from src.main import main as texaco_main
+        texaco_main()
+        return _MockProcess(0, stdout_capture.getvalue(), stderr_capture.getvalue())
+    except Exception as exc:
+        stderr_capture.write(f"\n{exc.__class__.__name__}: {exc}\n")
+        import traceback
+        stderr_capture.write(traceback.format_exc())
+        return _MockProcess(1, stdout_capture.getvalue(), stderr_capture.getvalue())
+    finally:
+        sys.stdout, sys.stderr = old_stdout, old_stderr
+        os.chdir(original_cwd)
+
+
 def run_simulation():
     """调用 src/main.py 运行模拟。"""
+    # PyInstaller 打包后 sys.executable 指向 exe 自身，无法再用子进程调用 Python
+    if getattr(sys, "frozen", False):
+        return _run_simulation_direct()
+
     python_exe = sys.executable
     main_py = ROOT / "src" / "main.py"
     env = os.environ.copy()
