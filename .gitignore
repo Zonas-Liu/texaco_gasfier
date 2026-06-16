@@ -69,3 +69,15 @@ dist/
 
 # Logs
 *.log
+http_scope_debug.log
+server_stderr.log
+server_stdout.log
+texaco_debug.log
+err.txt
+out.txt
+stderr.txt
+stdout.txt
+
+# Generated test outputs
+numeric_test/fortran_output/
+numeric_test/python_output/
