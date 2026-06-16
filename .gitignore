@@ -62,5 +62,10 @@ python_matrix_iter0.txt
 .DS_Store
 Thumbs.db
 
+# PyInstaller
+build/
+dist/
+*.spec
+
 # Logs
 *.log
