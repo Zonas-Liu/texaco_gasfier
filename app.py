@@ -350,6 +350,47 @@ def _is_number(s):
         return False
 
 
+def calculate_wet_syngas(dry_flow, gas_profile_last):
+    """
+    根据干合成气体积流量和第30个cell的湿基气体组成，计算湿合成气组成。
+
+    原理：
+    - 非水组分的湿基流量等于干基流量（水蒸气的加入不改变其他组分的量）
+    - 湿基总流量 = 干基总流量 / (1 - y_H2O)
+    - H2O 湿基流量 = 干基总流量 * y_H2O / (1 - y_H2O)
+
+    参数：
+        dry_flow: dict, 干基体积流量 (Nm³/s)
+        gas_profile_last: dict, 最后一个格子（出口）的湿基气体体积分数 (%)
+
+    返回：
+        wet_flow_nms: dict, 湿基体积流量 (Nm³/s)
+        wet_flow_nmh: dict, 湿基体积流量 (Nm³/h)
+        total_wet_nms: float, 湿基总体积流量 (Nm³/s)
+        total_wet_nmh: float, 湿基总体积流量 (Nm³/h)
+    """
+    total_dry = sum(dry_flow.values())
+    h2o_frac = gas_profile_last.get("H2O", 0.0) / 100.0
+
+    if h2o_frac <= 0.0 or h2o_frac >= 1.0:
+        # 无水分数据或数据异常，退化为干气
+        wet_flow_nms = dict(dry_flow)
+        wet_flow_nms["H2O"] = 0.0
+        wet_flow_nmh = {k: v * 3600.0 for k, v in wet_flow_nms.items()}
+        return wet_flow_nms, wet_flow_nmh, total_dry, total_dry * 3600.0
+
+    total_wet_nms = total_dry / (1.0 - h2o_frac)
+    h2o_flow_nms = total_dry * h2o_frac / (1.0 - h2o_frac)
+
+    wet_flow_nms = {}
+    for k, v in dry_flow.items():
+        wet_flow_nms[k] = v  # 非水组分湿基流量 = 干基流量
+    wet_flow_nms["H2O"] = h2o_flow_nms
+
+    wet_flow_nmh = {k: v * 3600.0 for k, v in wet_flow_nms.items()}
+    return wet_flow_nms, wet_flow_nmh, total_wet_nms, total_wet_nms * 3600.0
+
+
 # ---------------------------------------------------------------------------
 # 运行模拟
 # ---------------------------------------------------------------------------
@@ -599,6 +640,7 @@ def main():
     with tab2:
         syngas = result.get("syngas_composition", {})
         volume = result.get("volume_flow", {})
+        gas_prof = result.get("gas_composition_profile", [])
 
         if syngas:
             col_a, col_b = st.columns(2)
@@ -611,14 +653,52 @@ def main():
                 st.plotly_chart(fig, use_container_width=True)
 
             with col_b:
-                st.markdown("#### 体积流量")
+                st.markdown("#### 干基体积流量")
                 df_vol = pd.DataFrame([volume])
                 df_vol_cn = rename_columns(df_vol, OUTPUT_LABELS)
                 st.dataframe(style_dataframe(df_vol_cn, precision=4), use_container_width=True)
-                fig2 = plot_bar(volume, "各组分体积流量", "流量 (Nm³/s)")
+                fig2 = plot_bar(volume, "各组分干基体积流量", "流量 (Nm³/s)")
                 st.plotly_chart(fig2, use_container_width=True)
         else:
             st.warning("未解析到合成气成分")
+
+        # 湿合成气组成计算
+        if gas_prof and volume:
+            gas_last = gas_prof[-1]  # 第30个cell的湿基气体组成
+            wet_nms, wet_nmh, total_wet_nms, total_wet_nmh = calculate_wet_syngas(volume, gas_last)
+
+            st.markdown("---")
+            st.markdown("#### 💧 湿合成气组成（含 H₂O）")
+            st.markdown(
+                f"基于第 **30** 个格子湿基气体组成（H₂O = **{gas_last.get('H2O', 0):.3f}%**）换算，"
+                f"湿基总流量 = **{total_wet_nmh:.1f} Nm³/h**（{total_wet_nms:.4f} Nm³/s）"
+            )
+
+            wet_df = pd.DataFrame({
+                "组分": [OUTPUT_LABELS.get(k, k) for k in wet_nmh.keys()],
+                "湿基流量 (Nm³/s)": list(wet_nms.values()),
+                "湿基流量 (Nm³/h)": list(wet_nmh.values()),
+                "湿基体积分数 (%)": [v / total_wet_nms * 100.0 if total_wet_nms > 0 else 0.0 for v in wet_nms.values()],
+            })
+
+            col_c, col_d = st.columns([3, 2])
+            with col_c:
+                st.dataframe(
+                    wet_df.style.format({
+                        "湿基流量 (Nm³/s)": "{:.4f}",
+                        "湿基流量 (Nm³/h)": "{:.2f}",
+                        "湿基体积分数 (%)": "{:.3f}",
+                    }).set_properties(**{"text-align": "center"}).set_table_styles([
+                        {"selector": "th", "props": [("text-align", "center"), ("font-weight", "bold"), ("background-color", "#f0f2f6")]}
+                    ]),
+                    use_container_width=True,
+                    height=340,
+                )
+            with col_d:
+                fig_wet = plot_bar(wet_nmh, "湿合成气各组分流量", "流量 (Nm³/h)")
+                st.plotly_chart(fig_wet, use_container_width=True)
+        else:
+            st.info("缺少第30个格子的气体分布数据，无法计算湿合成气组成。")
 
     # -----------------------------------------------------------------------
     # Tab 3: 沿炉膛分布
