@@ -16,12 +16,20 @@ import os
 import re
 import subprocess
 import sys
+import threading
+import time
 from pathlib import Path
 
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
+
+# 将 src 加入路径，以便复用进度读取工具
+_SRC_PATH = str(Path(__file__).parent.resolve() / "src")
+if _SRC_PATH not in sys.path:
+    sys.path.insert(0, _SRC_PATH)
+from common.progress import read_progress, clear_progress
 
 # ---------------------------------------------------------------------------
 # 路径配置
@@ -434,7 +442,7 @@ def _run_simulation_direct():
 
 
 def run_simulation():
-    """调用 src/main.py 运行模拟。"""
+    """调用 src/main.py 运行模拟（同步阻塞版本，保留兼容）。"""
     # PyInstaller 打包后 sys.executable 指向 exe 自身，无法再用子进程调用 Python
     if getattr(sys, "frozen", False):
         return _run_simulation_direct()
@@ -454,6 +462,86 @@ def run_simulation():
         env=env,
     )
     return process
+
+
+def _run_simulation_direct_async():
+    """在 PyInstaller 环境下于后台线程中直接运行 src.main.main()。"""
+    result_container = {"returncode": None, "stdout": "", "stderr": ""}
+
+    def target():
+        process = _run_simulation_direct()
+        result_container["returncode"] = process.returncode
+        result_container["stdout"] = process.stdout
+        result_container["stderr"] = process.stderr
+
+    thread = threading.Thread(target=target, daemon=True)
+    thread.start()
+
+    class DirectHandle:
+        def done(self):
+            return not thread.is_alive()
+
+        def result(self):
+            thread.join()
+            return _MockProcess(
+                result_container["returncode"],
+                result_container["stdout"],
+                result_container["stderr"],
+            )
+
+        def terminate(self):
+            # Python 线程没有安全的强制终止机制，依赖 daemon 属性在会话结束时回收
+            pass
+
+    return DirectHandle()
+
+
+def _run_simulation_subprocess_async():
+    """以非阻塞子进程方式运行 src/main.py。
+
+    stdout/stderr 重定向到临时文件，避免 PIPE 缓冲区满导致子进程死锁。
+    """
+    python_exe = sys.executable
+    main_py = ROOT / "src" / "main.py"
+    env = os.environ.copy()
+    env["PYTHONIOENCODING"] = "utf-8"
+
+    stdout_path = ROOT / ".simulation_stdout.log"
+    stderr_path = ROOT / ".simulation_stderr.log"
+    stdout_file = open(stdout_path, "w", encoding="utf-8")
+    stderr_file = open(stderr_path, "w", encoding="utf-8")
+
+    process = subprocess.Popen(
+        [python_exe, str(main_py)],
+        cwd=str(ROOT),
+        stdout=stdout_file,
+        stderr=stderr_file,
+        env=env,
+    )
+
+    class SubprocessHandle:
+        def done(self):
+            return process.poll() is not None
+
+        def result(self):
+            process.wait()
+            stdout_file.close()
+            stderr_file.close()
+            stdout = stdout_path.read_text(encoding="utf-8", errors="ignore")
+            stderr = stderr_path.read_text(encoding="utf-8", errors="ignore")
+            return _MockProcess(process.returncode, stdout, stderr)
+
+        def terminate(self):
+            process.terminate()
+
+    return SubprocessHandle()
+
+
+def run_simulation_async():
+    """在后台启动模拟，返回带 done()/result()/terminate() 接口的 handle。"""
+    if getattr(sys, "frozen", False):
+        return _run_simulation_direct_async()
+    return _run_simulation_subprocess_async()
 
 
 # ---------------------------------------------------------------------------
@@ -591,7 +679,13 @@ def main():
 
     col1, col2 = st.sidebar.columns(2)
     save_clicked = col1.button("💾 保存输入", use_container_width=True)
-    run_clicked = col2.button("🚀 运行模拟", use_container_width=True, type="primary")
+    is_running = st.session_state.get("sim_handle") is not None
+    run_clicked = col2.button(
+        "🚀 运行模拟",
+        use_container_width=True,
+        type="primary",
+        disabled=is_running,
+    )
 
     if save_clicked:
         write_datain0(DATA_FILE, params)
@@ -602,17 +696,67 @@ def main():
     # -----------------------------------------------------------------------
     if run_clicked:
         write_datain0(DATA_FILE, params)
-        with st.spinner("正在运行 TEXACO 模拟，请稍候..."):
-            process = run_simulation()
-        if process.returncode != 0:
-            st.error("❌ 模拟运行失败")
-            st.code(process.stderr or process.stdout)
+        clear_progress()
+
+        # 终止之前的运行（子进程模式）
+        old_handle = st.session_state.get("sim_handle")
+        if old_handle is not None:
+            try:
+                old_handle.terminate()
+            except Exception:
+                pass
+
+        st.session_state["sim_handle"] = run_simulation_async()
+        st.rerun()
+
+    # -----------------------------------------------------------------------
+    # 主区域：进度轮询与结果展示
+    # -----------------------------------------------------------------------
+    handle = st.session_state.get("sim_handle")
+    if handle is not None:
+        progress_bar = st.progress(0.0, text="正在准备模拟...")
+        status_text = st.empty()
+
+        try:
+            while not handle.done():
+                progress = read_progress()
+                if progress:
+                    pct = min(float(progress.get("progress", 0.0)), 1.0)
+                    iteration = progress.get("iteration", 0)
+                    max_iter = progress.get("max_iterations", 0)
+                    residuals = progress.get("residuals", {})
+                    msg = progress.get("message", f"第 {iteration} 次迭代")
+                    residual_parts = []
+                    for key in ("SUMFE", "SUMWE", "SUMX", "SUMT"):
+                        val = residuals.get(key)
+                        if val is not None:
+                            residual_parts.append(f"{key}={val:.2e}")
+                    residual_str = " | ".join(residual_parts)
+                    progress_bar.progress(pct, text=f"{msg} [{iteration}/{max_iter}] {residual_str}")
+                time.sleep(0.3)
+
+            process = handle.result()
+            st.session_state["sim_handle"] = None
+            progress_bar.empty()
+            status_text.empty()
+
+            if process.returncode != 0:
+                st.error("❌ 模拟运行失败")
+                st.code(process.stderr or process.stdout)
+                return
+            else:
+                st.success("✅ 模拟运行完成")
+                if process.stdout:
+                    with st.expander("🖥️ 控制台输出"):
+                        st.code(process.stdout)
+        except Exception as exc:
+            try:
+                handle.terminate()
+            except Exception:
+                pass
+            st.session_state["sim_handle"] = None
+            st.error(f"❌ 运行模拟时出错: {exc}")
             return
-        else:
-            st.success("✅ 模拟运行完成")
-            if process.stdout:
-                with st.expander("🖥️ 控制台输出"):
-                    st.code(process.stdout)
 
     # -----------------------------------------------------------------------
     # 主区域：结果展示

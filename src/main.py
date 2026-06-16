@@ -6,6 +6,7 @@ TEXACO气化炉CFD模拟 - 主程序 (残差输出版)
 """
 
 from common.common_data import common
+from common.progress import write_progress, clear_progress
 from subroutines.initialization import eingab
 from subroutines.gasifier_main import gasifier
 from functions.math_utils import newtra
@@ -112,6 +113,9 @@ def main():
     # 传入output_file以便将运行条件写入GASTEST.DAT
     eingab(output_file=output_file)
     
+    # 初始化进度文件
+    write_progress(0, common.ITMAX, status="running", message="初始化完成，开始迭代")
+    
     # 写入残差历史表头
     output_file.write('\n')
     output_file.write('=' * 60 + '\n')
@@ -160,12 +164,28 @@ def main():
         # 同时输出到屏幕
         print(f"Iter:{common.ITERAT:>4} K={common.KONVER} FE={sumfe:.3e} WE={sumwe:.3e} X={sumx:.3e} T={sumt:.3e}")
         
+        # 上报进度到前端
+        write_progress(
+            common.ITERAT,
+            common.ITMAX,
+            residuals={"SUMFE": sumfe, "SUMWE": sumwe, "SUMX": sumx, "SUMT": sumt},
+            status="running",
+            message=f"第 {common.ITERAT} 次迭代",
+        )
+        
         # 检查收敛性
         if common.KONVER == 0:
             output_file.write('-' * 60 + '\n')
             output_file.write(f'收敛完成! (Converged at iteration {common.ITERAT})\n')
             output_file.write('=' * 60 + '\n')
             kolerg(output_file)
+            write_progress(
+                common.ITERAT,
+                common.ITMAX,
+                residuals={"SUMFE": sumfe, "SUMWE": sumwe, "SUMX": sumx, "SUMT": sumt},
+                status="completed",
+                message=f"收敛完成，共 {common.ITERAT} 次迭代",
+            )
             break
         
         # 检查是否达到最大迭代次数
@@ -177,6 +197,13 @@ def main():
             output_file.write('=' * 60 + '\n')
             print(message)
             kolerg(output_file)
+            write_progress(
+                common.ITERAT,
+                common.ITMAX,
+                residuals={"SUMFE": sumfe, "SUMWE": sumwe, "SUMX": sumx, "SUMT": sumt},
+                status="completed",
+                message="达到最大迭代次数",
+            )
             break
     
     # 关闭输出文件

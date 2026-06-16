@@ -58,6 +58,9 @@ GASTEST.DAT
 START.DAT
 python_matrix_iter0.txt
 *.DAT.backup
+simulation_progress.json
+.simulation_stdout.log
+.simulation_stderr.log
 
 # OS
 .DS_Store
