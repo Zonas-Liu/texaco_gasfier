@@ -6,7 +6,7 @@ TEXACO 气化炉 Streamlit 前端界面
 功能：
 - 编辑输入参数 (Datain0.dat)
 - 运行 Python 模拟
-- 展示 GASTEST.DAT 输出结果
+- 可视化展示 GASTEST.DAT 输出结果
 
 运行方式：
     .venv\\Scripts\\streamlit run app.py
@@ -19,6 +19,8 @@ import sys
 from pathlib import Path
 
 import pandas as pd
+import plotly.express as px
+import plotly.graph_objects as go
 import streamlit as st
 
 # ---------------------------------------------------------------------------
@@ -29,43 +31,46 @@ DATA_FILE = ROOT / "data" / "Datain0.dat"
 OUTPUT_FILE = ROOT / "GASTEST.DAT"
 
 # ---------------------------------------------------------------------------
-# Datain0.dat 读写
+# 输入参数元数据（中文说明）
 # ---------------------------------------------------------------------------
-DEFAULT_PARAMS = {
-    "KTRL": {"value": 1, "type": "int", "desc": "控制参数"},
-    "ITMAX": {"value": 100, "type": "int", "desc": "最大迭代次数"},
-    "SKONFE": {"value": 5.0e-4, "type": "float", "desc": "气体组分收敛阈值"},
-    "SKONWE": {"value": 5.0e-4, "type": "float", "desc": "固体质量流收敛阈值"},
-    "SKONX": {"value": 5.0e-4, "type": "float", "desc": "碳转化率收敛阈值"},
-    "SKONT": {"value": 5.0e-3, "type": "float", "desc": "温度收敛阈值"},
-    "BSLURRY": {"value": 14.0, "type": "float", "desc": "煤浆浓度 (%煤)"},
-    "RATIO_COAL": {"value": 0.6, "type": "float", "desc": "煤浆中煤的质量分数"},
-    "FOXY": {"value": 0.98, "type": "float", "desc": "氧煤比 (kg O2/kg BSWAF)"},
-    "PURE_O2": {"value": 0.996, "type": "float", "desc": "氧气纯度"},
-    "OX_PART": {"value": 1.0, "type": "float", "desc": "一次氧气比例"},
-    "RATIO_CO2": {"value": 0.0, "type": "float", "desc": "CO2 比例"},
-    "PFEED_SL": {"value": 81.0e5, "type": "float", "desc": "煤浆压力 (Pa)"},
-    "TFEED_SL": {"value": 318.15, "type": "float", "desc": "煤浆温度 (K)"},
-    "PFEED_O2": {"value": 81.0e5, "type": "float", "desc": "氧气压力 (Pa)"},
-    "TFEED_O2": {"value": 293.15, "type": "float", "desc": "氧气温度 (K)"},
-    "PFEED_CO2": {"value": 81.0e5, "type": "float", "desc": "CO2 压力 (Pa)"},
-    "TFEED_CO2": {"value": 293.15, "type": "float", "desc": "CO2 温度 (K)"},
-    "DP": {"value": 100.0e-6, "type": "float", "desc": "颗粒直径 (m)"},
-    "HU": {"value": 25900.0, "type": "float", "desc": "煤热值 (kJ/kg)"},
-    "XVM": {"value": 0.28, "type": "float", "desc": "挥发分含量"},
-    "ELC": {"value": 0.6802, "type": "float", "desc": "煤中 C 质量分数"},
-    "ELH": {"value": 0.0404, "type": "float", "desc": "煤中 H 质量分数"},
-    "ELO": {"value": 0.0985, "type": "float", "desc": "煤中 O 质量分数"},
-    "ELN": {"value": 0.0249, "type": "float", "desc": "煤中 N 质量分数"},
-    "ELS": {"value": 0.006, "type": "float", "desc": "煤中 S 质量分数"},
-    "ELAS": {"value": 0.15, "type": "float", "desc": "煤中灰分质量分数"},
-    "ELH2O": {"value": 0.0, "type": "float", "desc": "煤中 H2O 质量分数"},
-    "TU": {"value": 298.15, "type": "float", "desc": "环境温度 (K)"},
-    "TW": {"value": 2200.0, "type": "float", "desc": "壁面温度 (K)"},
-    "PWK": {"value": 67.0e5, "type": "float", "desc": "操作压力 (Pa)"},
-    "QLOSS": {"value": 0.03, "type": "float", "desc": "热损失系数"},
+PARAM_INFO = {
+    # 控制与收敛
+    "KTRL": {"cn": "控制参数", "unit": "", "desc": "全局控制开关", "group": "控制与收敛"},
+    "ITMAX": {"cn": "最大迭代次数", "unit": "", "desc": "牛顿迭代最大步数", "group": "控制与收敛"},
+    "SKONFE": {"cn": "气体组分收敛阈值", "unit": "", "desc": "SUMFE 收敛判据", "group": "控制与收敛"},
+    "SKONWE": {"cn": "固体质量流收敛阈值", "unit": "", "desc": "SUMWE 收敛判据", "group": "控制与收敛"},
+    "SKONX": {"cn": "碳转化率收敛阈值", "unit": "", "desc": "SUMX 收敛判据", "group": "控制与收敛"},
+    "SKONT": {"cn": "温度收敛阈值", "unit": "", "desc": "SUMT 收敛判据", "group": "控制与收敛"},
+    # 进料参数
+    "BSLURRY": {"cn": "水煤浆浓度", "unit": "%", "desc": "煤浆中煤的质量百分比", "group": "进料参数"},
+    "RATIO_COAL": {"cn": "煤浆煤质量分数", "unit": "", "desc": "干煤占水煤浆总质量的比例", "group": "进料参数"},
+    "FOXY": {"cn": "氧煤比", "unit": "kg O₂/kg BSWAF", "desc": "氧气流量与煤浆流量之比", "group": "进料参数"},
+    "PURE_O2": {"cn": "氧气纯度", "unit": "", "desc": "工业氧气中 O₂ 的摩尔分数", "group": "进料参数"},
+    "OX_PART": {"cn": "一次氧气比例", "unit": "", "desc": "一次氧气占总氧气比例", "group": "进料参数"},
+    "RATIO_CO2": {"cn": "CO₂ 比例", "unit": "", "desc": "进料 CO₂ 比例", "group": "进料参数"},
+    # 状态与几何
+    "PFEED_SL": {"cn": "煤浆进料压力", "unit": "Pa", "desc": "水煤浆喷嘴前压力", "group": "状态与几何"},
+    "TFEED_SL": {"cn": "煤浆进料温度", "unit": "K", "desc": "水煤浆入口温度", "group": "状态与几何"},
+    "PFEED_O2": {"cn": "氧气进料压力", "unit": "Pa", "desc": "氧气喷嘴前压力", "group": "状态与几何"},
+    "TFEED_O2": {"cn": "氧气进料温度", "unit": "K", "desc": "氧气入口温度", "group": "状态与几何"},
+    "PFEED_CO2": {"cn": "CO₂ 进料压力", "unit": "Pa", "desc": "CO₂ 喷嘴前压力", "group": "状态与几何"},
+    "TFEED_CO2": {"cn": "CO₂ 进料温度", "unit": "K", "desc": "CO₂ 入口温度", "group": "状态与几何"},
+    "DP": {"cn": "煤粉颗粒直径", "unit": "m", "desc": "颗粒平均直径", "group": "状态与几何"},
+    # 煤质与操作
+    "HU": {"cn": "煤低位热值", "unit": "kJ/kg", "desc": "收到基低位发热量", "group": "煤质与操作"},
+    "XVM": {"cn": "挥发分含量", "unit": "", "desc": "煤中挥发分质量分数", "group": "煤质与操作"},
+    "ELC": {"cn": "煤中 C 含量", "unit": "", "desc": "干燥无灰基碳质量分数", "group": "煤质与操作"},
+    "ELH": {"cn": "煤中 H 含量", "unit": "", "desc": "干燥无灰基氢质量分数", "group": "煤质与操作"},
+    "ELO": {"cn": "煤中 O 含量", "unit": "", "desc": "干燥无灰基氧质量分数", "group": "煤质与操作"},
+    "ELN": {"cn": "煤中 N 含量", "unit": "", "desc": "干燥无灰基氮质量分数", "group": "煤质与操作"},
+    "ELS": {"cn": "煤中 S 含量", "unit": "", "desc": "干燥无灰基硫质量分数", "group": "煤质与操作"},
+    "ELAS": {"cn": "煤中灰分含量", "unit": "", "desc": "灰分质量分数", "group": "煤质与操作"},
+    "ELH2O": {"cn": "煤中 H₂O 含量", "unit": "", "desc": "煤中水分质量分数", "group": "煤质与操作"},
+    "TU": {"cn": "环境温度", "unit": "K", "desc": "参考环境温度", "group": "煤质与操作"},
+    "TW": {"cn": "壁面温度", "unit": "K", "desc": "气化炉壁面温度", "group": "煤质与操作"},
+    "PWK": {"cn": "炉膛操作压力", "unit": "Pa", "desc": "气化炉内操作压力", "group": "煤质与操作"},
+    "QLOSS": {"cn": "热损失系数", "unit": "", "desc": "除壁面辐射外的附加热损失比例", "group": "煤质与操作"},
 }
-
 
 PARAM_LINES = [
     ("KTRL",),
@@ -81,26 +86,87 @@ PARAM_LINES = [
     ("QLOSS",),
 ]
 
+DEFAULT_PARAMS = {k: 0 for k in PARAM_INFO}
+DEFAULT_PARAMS.update({
+    "KTRL": 1, "ITMAX": 100,
+    "SKONFE": 5.0e-4, "SKONWE": 5.0e-4, "SKONX": 5.0e-4, "SKONT": 5.0e-3,
+    "BSLURRY": 14.0, "RATIO_COAL": 0.6,
+    "FOXY": 0.98, "PURE_O2": 0.996, "OX_PART": 1.0, "RATIO_CO2": 0.0,
+    "PFEED_SL": 81.0e5, "TFEED_SL": 318.15, "PFEED_O2": 81.0e5, "TFEED_O2": 293.15,
+    "PFEED_CO2": 81.0e5, "TFEED_CO2": 293.15,
+    "DP": 100.0e-6,
+    "HU": 25900.0, "XVM": 0.28,
+    "ELC": 0.6802, "ELH": 0.0404, "ELO": 0.0985, "ELN": 0.0249,
+    "ELS": 0.006, "ELAS": 0.15, "ELH2O": 0.0,
+    "TU": 298.15, "TW": 2200.0, "PWK": 67.0e5,
+    "QLOSS": 0.03,
+})
 
+# ---------------------------------------------------------------------------
+# 输出变量中文标签
+# ---------------------------------------------------------------------------
+OUTPUT_LABELS = {
+    # 收敛历史
+    "Iter": "迭代次数",
+    "KONVER": "收敛标志",
+    "SUMFE": "气体组分残差",
+    "SUMWE": "固体质量流残差",
+    "SUMX": "碳转化率残差",
+    "SUMT": "温度残差",
+    # 内部参数分布
+    "I": "格子号",
+    "H(m)": "高度 (m)",
+    "U0(m/s)": "气体速度 (m/s)",
+    "ResidenceTime(s)": "停留时间 (s)",
+    "WE(kg/s)": "碳质量流 (kg/s)",
+    "T(C)": "温度 (°C)",
+    "X(%)": "碳转化率 (%)",
+    # 气体成分
+    "O2": "氧气 O₂",
+    "CH4": "甲烷 CH₄",
+    "CO": "一氧化碳 CO",
+    "CO2": "二氧化碳 CO₂",
+    "H2S": "硫化氢 H₂S",
+    "H2": "氢气 H₂",
+    "N2": "氮气 N₂",
+    "H2O": "水蒸气 H₂O",
+}
+
+# 图表配色
+COLOR_PALETTE = px.colors.qualitative.G10
+GAS_COLORS = {
+    "O2": "#E45756",
+    "CH4": "#F58518",
+    "CO": "#72B7B2",
+    "CO2": "#54A24B",
+    "H2S": "#B279A2",
+    "H2": "#4C78A8",
+    "N2": "#79706E",
+    "H2O": "#D67195",
+}
+
+
+# ---------------------------------------------------------------------------
+# Datain0.dat 读写
+# ---------------------------------------------------------------------------
 def parse_datain0(path):
     """解析 Datain0.dat，返回参数字典。"""
-    params = {}
+    params = dict(DEFAULT_PARAMS)
     if not path.exists():
-        return {k: v["value"] for k, v in DEFAULT_PARAMS.items()}
+        return params
 
     text = path.read_text(encoding="utf-8", errors="ignore")
     lines = [line.strip() for line in text.splitlines() if line.strip()]
 
     for line_tuple, line in zip(PARAM_LINES, lines):
-        # 去掉注释部分，只保留斜杠前的数值
         numeric_part = line.split("/")[0].strip()
         values = [v.strip() for v in numeric_part.split(",")]
         if len(values) != len(line_tuple):
             st.warning(f"行解析长度不匹配: {line} -> 期望 {len(line_tuple)} 个值")
         for name, val_str in zip(line_tuple, values):
-            typ = DEFAULT_PARAMS[name]["type"]
-            val = float(val_str.replace("D", "E").replace("d", "e"))
-            params[name] = int(val) if typ == "int" else val
+            params[name] = float(val_str.replace("D", "E").replace("d", "e"))
+            if PARAM_INFO[name].get("type") == "int":
+                params[name] = int(params[name])
     return params
 
 
@@ -134,7 +200,6 @@ def _format_value(v):
     """格式化数值为 Fortran 风格。"""
     if isinstance(v, int):
         return str(v)
-    # 使用 E 指数格式，避免 Python 默认的 e+xx 被 Fortran 误解
     s = f"{v:.6E}"
     return s.replace("E+", "D0").replace("E-", "D-").replace("E", "D")
 
@@ -160,7 +225,7 @@ def parse_gastest(path):
         "outlet": {},
     }
 
-    # 1. 运行条件：前 20 行中提取带 % 或冒号后的数值
+    # 1. 运行条件
     for i, line in enumerate(lines[:20]):
         m = re.search(r"(-?\d+\.?\d*)\s*%", line)
         if m:
@@ -190,8 +255,7 @@ def parse_gastest(path):
             elif "Converged" in line or "收敛" in line or "MAX" in line or line.strip().startswith("="):
                 in_history = False
 
-    # 3. 识别连续的数字表格行
-    # 表格1：7 列（内部参数），表格2：9 列（气体成分）
+    # 3. 连续数字表格识别（7 列内部参数 / 9 列气体成分）
     table_blocks = []
     current_block = []
     for line in lines:
@@ -205,7 +269,6 @@ def parse_gastest(path):
     if current_block:
         table_blocks.append(current_block)
 
-    # 取最长的 7 列表格作为内部参数，最长的 9 列表格作为气体成分
     for block in table_blocks:
         ncols = block[0][0]
         if ncols == 7 and len(block) > len(result["internal_profile"]):
@@ -237,20 +300,17 @@ def parse_gastest(path):
                 for _, parts in block
             ]
 
-    # 4. 合成气成分和体积流量：在气体成分表之后，寻找 8 列数据行
+    # 4. 合成气成分和体积流量
     keys = ["O2", "CH4", "CO", "CO2", "H2S", "H2", "N2"]
     found_gas_table_end = False
-    for i, line in enumerate(lines):
-        # 气体成分表头
+    for line in lines:
         if line.strip().startswith("I") and "O2" in line and "H2O" in line:
             found_gas_table_end = True
             continue
         if not found_gas_table_end:
             continue
         parts = line.split()
-        # 跳过表格数据行（第一列为整数）和表头行（第二列不是数字）
-        if (len(parts) >= 8 and not parts[0].isdigit() and
-                _is_number(parts[1])):
+        if len(parts) >= 8 and not parts[0].isdigit() and _is_number(parts[1]):
             vals = [_parse_float(v) for v in parts[1:8]]
             if all(v >= 0 for v in vals):
                 if not result["syngas_composition"]:
@@ -258,28 +318,24 @@ def parse_gastest(path):
                 elif not result["volume_flow"]:
                     result["volume_flow"] = dict(zip(keys, vals))
 
-    # 5. 出口温度和碳转化率：文件最后几行
+    # 5. 出口温度和碳转化率
     for line in lines[-5:]:
-        # 温度形如 "1315.072 C"
         m = re.search(r"(\d+\.\d+)\s*C", line)
         if m:
             val = _parse_float(m.group(1))
-            if val > 100:  # 排除室温等较小值
+            if val > 100:
                 result["outlet"]["Temperature(C)"] = val
-        # 碳转化率：查找 0-1 之间的数字
         nums = re.findall(r"\d+\.\d+", line)
         for n in nums:
             val = _parse_float(n)
             if 0 <= val <= 1.5:
                 result["outlet"]["CarbonConversion"] = val
 
-    # 简化运行条件
     result["operating_conditions"] = dict(list(result["operating_conditions"].items())[:10])
-
     return result
 
+
 def _parse_float(s):
-    """安全解析浮点数。"""
     try:
         return float(s.replace("D", "E").replace("d", "e"))
     except ValueError:
@@ -287,7 +343,6 @@ def _parse_float(s):
 
 
 def _is_number(s):
-    """判断字符串是否为数值。"""
     try:
         float(s.replace("D", "E").replace("d", "e"))
         return True
@@ -318,165 +373,336 @@ def run_simulation():
 
 
 # ---------------------------------------------------------------------------
+# 美化辅助函数
+# ---------------------------------------------------------------------------
+def rename_columns(df, labels):
+    """将 DataFrame 列名替换为中文标签。"""
+    return df.rename(columns={k: labels.get(k, k) for k in df.columns})
+
+
+def style_dataframe(df, precision=4):
+    """对 DataFrame 进行简单样式美化。"""
+    fmt = {col: f"{{:.{precision}f}}" for col in df.select_dtypes(include="number").columns}
+    return df.style.format(fmt).set_properties(**{
+        "text-align": "center",
+        "font-size": "14px"
+    }).set_table_styles([
+        {"selector": "th", "props": [("text-align", "center"), ("font-weight", "bold"), ("background-color", "#f0f2f6")]}
+    ])
+
+
+def plot_line(df, x, y_list, title, y_title, color_map=None):
+    """使用 Plotly 绘制交互式折线图。"""
+    fig = go.Figure()
+    for y in y_list:
+        fig.add_trace(go.Scatter(
+            x=df[x],
+            y=df[y],
+            mode="lines+markers",
+            name=OUTPUT_LABELS.get(y, y),
+            line=dict(width=2.5),
+            marker=dict(size=6),
+        ))
+    fig.update_layout(
+        title=dict(text=title, font=dict(size=18)),
+        xaxis_title=OUTPUT_LABELS.get(x, x),
+        yaxis_title=y_title,
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        hovermode="x unified",
+        template="plotly_white",
+        margin=dict(l=60, r=40, t=80, b=60),
+    )
+    if color_map:
+        for trace in fig.data:
+            key = next((k for k in color_map if OUTPUT_LABELS.get(k, k) == trace.name), None)
+            if key:
+                trace.line.color = color_map[key]
+                trace.marker.color = color_map[key]
+    return fig
+
+
+def plot_bar(data_dict, title, y_title):
+    """使用 Plotly 绘制柱状图。"""
+    labels = [OUTPUT_LABELS.get(k, k) for k in data_dict.keys()]
+    values = list(data_dict.values())
+    colors = [GAS_COLORS.get(k, COLOR_PALETTE[i % len(COLOR_PALETTE)]) for i, k in enumerate(data_dict.keys())]
+
+    fig = go.Figure(data=[go.Bar(
+        x=labels,
+        y=values,
+        marker_color=colors,
+        text=[f"{v:.4f}" for v in values],
+        textposition="outside",
+    )])
+    fig.update_layout(
+        title=dict(text=title, font=dict(size=18)),
+        xaxis_title="组分",
+        yaxis_title=y_title,
+        template="plotly_white",
+        margin=dict(l=60, r=40, t=80, b=60),
+    )
+    return fig
+
+
+# ---------------------------------------------------------------------------
 # Streamlit 页面
 # ---------------------------------------------------------------------------
 def main():
-    st.set_page_config(page_title="TEXACO 气化炉模拟", layout="wide")
-    st.title("🔥 TEXACO 气化炉 CFD 模拟前端")
+    st.set_page_config(page_title="TEXACO 气化炉模拟", layout="wide", initial_sidebar_state="expanded")
+
+    # 页面标题与说明
+    st.markdown("""
+    <h1 style='text-align: center; color: #1f77b4;'>🔥 TEXACO 气化炉 CFD 模拟平台</h1>
+    <p style='text-align: center; color: #666; font-size: 16px;'>
+        交互式编辑输入参数、运行模拟并可视化 GASTEST.DAT 输出结果
+    </p>
+    """, unsafe_allow_html=True)
 
     # -----------------------------------------------------------------------
     # 侧边栏：输入参数
     # -----------------------------------------------------------------------
-    st.sidebar.header("⚙️ 输入参数")
-    st.sidebar.markdown("编辑 `data/Datain0.dat` 并运行模拟")
+    st.sidebar.header("⚙️ 输入参数编辑")
+    st.sidebar.markdown("修改 `data/Datain0.dat` 中的运行参数，点击保存或运行。")
 
     params = parse_datain0(DATA_FILE)
 
-    # 分组展示
-    with st.sidebar.expander("控制与收敛", expanded=True):
-        params["KTRL"] = st.number_input("KTRL", value=params["KTRL"], step=1)
-        params["ITMAX"] = st.number_input("ITMAX", value=params["ITMAX"], step=1)
-        params["SKONFE"] = st.number_input("SKONFE", value=params["SKONFE"], format="%.2e")
-        params["SKONWE"] = st.number_input("SKONWE", value=params["SKONWE"], format="%.2e")
-        params["SKONX"] = st.number_input("SKONX", value=params["SKONX"], format="%.2e")
-        params["SKONT"] = st.number_input("SKONT", value=params["SKONT"], format="%.2e")
+    # 按分组渲染输入控件
+    groups = {}
+    for name, info in PARAM_INFO.items():
+        groups.setdefault(info["group"], []).append(name)
 
-    with st.sidebar.expander("进料参数", expanded=True):
-        params["BSLURRY"] = st.number_input("BSLURRY (%)", value=params["BSLURRY"])
-        params["RATIO_COAL"] = st.number_input("RATIO_COAL", value=params["RATIO_COAL"], min_value=0.0, max_value=1.0)
-        params["FOXY"] = st.number_input("FOXY (kg O2/kg BSWAF)", value=params["FOXY"])
-        params["PURE_O2"] = st.number_input("PURE_O2", value=params["PURE_O2"], min_value=0.0, max_value=1.0)
-        params["OX_PART"] = st.number_input("OX_PART", value=params["OX_PART"], min_value=0.0, max_value=1.0)
-        params["RATIO_CO2"] = st.number_input("RATIO_CO2", value=params["RATIO_CO2"], min_value=0.0, max_value=1.0)
+    for group_name, names in groups.items():
+        with st.sidebar.expander(f"📁 {group_name}", expanded=(group_name == "进料参数")):
+            for name in names:
+                info = PARAM_INFO[name]
+                label = f"{info['cn']} ({name})"
+                val = params[name]
 
-    with st.sidebar.expander("状态与几何", expanded=True):
-        params["PFEED_SL"] = st.number_input("PFEED_SL (Pa)", value=params["PFEED_SL"], format="%.2e")
-        params["TFEED_SL"] = st.number_input("TFEED_SL (K)", value=params["TFEED_SL"])
-        params["PFEED_O2"] = st.number_input("PFEED_O2 (Pa)", value=params["PFEED_O2"], format="%.2e")
-        params["TFEED_O2"] = st.number_input("TFEED_O2 (K)", value=params["TFEED_O2"])
-        params["PFEED_CO2"] = st.number_input("PFEED_CO2 (Pa)", value=params["PFEED_CO2"], format="%.2e")
-        params["TFEED_CO2"] = st.number_input("TFEED_CO2 (K)", value=params["TFEED_CO2"])
-        params["DP"] = st.number_input("DP (m)", value=params["DP"], format="%.2e")
+                # 根据数值范围决定输入控件
+                if info["unit"] == "":
+                    help_text = info["desc"]
+                else:
+                    help_text = f"{info['desc']}，单位：{info['unit']}"
 
-    with st.sidebar.expander("煤质与操作", expanded=True):
-        params["HU"] = st.number_input("HU (kJ/kg)", value=params["HU"])
-        params["XVM"] = st.number_input("XVM", value=params["XVM"], min_value=0.0, max_value=1.0)
-        params["ELC"] = st.number_input("ELC", value=params["ELC"], min_value=0.0, max_value=1.0)
-        params["ELH"] = st.number_input("ELH", value=params["ELH"], min_value=0.0, max_value=1.0)
-        params["ELO"] = st.number_input("ELO", value=params["ELO"], min_value=0.0, max_value=1.0)
-        params["ELN"] = st.number_input("ELN", value=params["ELN"], min_value=0.0, max_value=1.0)
-        params["ELS"] = st.number_input("ELS", value=params["ELS"], min_value=0.0, max_value=1.0)
-        params["ELAS"] = st.number_input("ELAS", value=params["ELAS"], min_value=0.0, max_value=1.0)
-        params["ELH2O"] = st.number_input("ELH2O", value=params["ELH2O"], min_value=0.0, max_value=1.0)
-        params["TU"] = st.number_input("TU (K)", value=params["TU"])
-        params["TW"] = st.number_input("TW (K)", value=params["TW"])
-        params["PWK"] = st.number_input("PWK (Pa)", value=params["PWK"], format="%.2e")
-        params["QLOSS"] = st.number_input("QLOSS", value=params["QLOSS"], min_value=0.0, max_value=1.0)
+                if isinstance(val, int):
+                    params[name] = st.number_input(
+                        label,
+                        value=int(val),
+                        step=1,
+                        help=help_text,
+                        key=f"input_{name}",
+                    )
+                else:
+                    # 对 0-1 之间的参数使用更精细的步长
+                    step = 0.001 if 0 <= val <= 1 else (0.01 if abs(val) < 100 else 1.0)
+                    format_str = "%.6f" if abs(val) < 1 else "%.2f"
+                    params[name] = st.number_input(
+                        label,
+                        value=float(val),
+                        step=float(step),
+                        format=format_str,
+                        help=help_text,
+                        key=f"input_{name}",
+                    )
 
     col1, col2 = st.sidebar.columns(2)
-    save_clicked = col1.button("💾 保存输入")
-    run_clicked = col2.button("🚀 运行模拟")
+    save_clicked = col1.button("💾 保存输入", use_container_width=True)
+    run_clicked = col2.button("🚀 运行模拟", use_container_width=True, type="primary")
 
     if save_clicked:
         write_datain0(DATA_FILE, params)
-        st.sidebar.success("输入参数已保存")
+        st.sidebar.success("✅ 输入参数已保存到 data/Datain0.dat")
 
     # -----------------------------------------------------------------------
-    # 主区域
+    # 主区域：运行模拟
     # -----------------------------------------------------------------------
     if run_clicked:
         write_datain0(DATA_FILE, params)
         with st.spinner("正在运行 TEXACO 模拟，请稍候..."):
             process = run_simulation()
         if process.returncode != 0:
-            st.error("运行失败")
+            st.error("❌ 模拟运行失败")
             st.code(process.stderr or process.stdout)
+            return
         else:
-            st.success("模拟运行完成")
+            st.success("✅ 模拟运行完成")
             if process.stdout:
-                with st.expander("控制台输出"):
+                with st.expander("🖥️ 控制台输出"):
                     st.code(process.stdout)
 
-    # 展示结果
+    # -----------------------------------------------------------------------
+    # 主区域：结果展示
+    # -----------------------------------------------------------------------
     result = parse_gastest(OUTPUT_FILE)
     if result is None:
-        st.info("尚未生成 `GASTEST.DAT`，请点击侧边栏的「运行模拟」。")
+        st.info("📭 尚未生成 `GASTEST.DAT`，请在侧边栏点击「运行模拟」。")
         return
 
-    # -----------------------------------------------------------------------
     # 结果摘要卡片
-    # -----------------------------------------------------------------------
+    outlet = result.get("outlet", {})
+    hist = result.get("convergence_history", [])
+    last_iter = hist[-1]["Iter"] if hist else 0
+    converged = "✅ 已收敛" if hist and hist[-1].get("KONVER") == 0 else "⚠️ 未收敛"
+
+    st.markdown("---")
     st.header("📊 模拟结果摘要")
 
-    outlet = result.get("outlet", {})
-    syngas = result.get("syngas_composition", {})
-
-    c1, c2, c3 = st.columns(3)
+    c1, c2, c3, c4 = st.columns(4)
     c1.metric("出口温度", f"{outlet.get('Temperature(C)', 0):.2f} °C")
-    c2.metric("碳转化率", f"{outlet.get('CarbonConversion', 0):.4f}")
-    c3.metric("收敛迭代", len(result.get("convergence_history", [])))
+    c2.metric("碳转化率", f"{outlet.get('CarbonConversion', 0) * 100:.2f}%")
+    c3.metric("收敛迭代", f"{last_iter} 次")
+    c4.metric("收敛状态", converged)
+
+    # 结果详情页签
+    tab1, tab2, tab3, tab4 = st.tabs(["📈 收敛历史", "🧪 合成气成分", "🏭 沿炉膛分布", "📝 原始输出"])
 
     # -----------------------------------------------------------------------
-    # 收敛历史
+    # Tab 1: 收敛历史
     # -----------------------------------------------------------------------
-    st.subheader("📈 收敛历史")
-    hist = result.get("convergence_history", [])
-    if hist:
-        df_hist = pd.DataFrame(hist)
-        tab1, tab2 = st.tabs(["表格", "曲线"])
-        with tab1:
-            st.dataframe(df_hist, use_container_width=True)
-        with tab2:
-            st.line_chart(df_hist.set_index("Iter")[["SUMFE", "SUMWE", "SUMX"]])
-            st.line_chart(df_hist.set_index("Iter")[["SUMT"]])
-    else:
-        st.warning("未解析到收敛历史")
+    with tab1:
+        if hist:
+            df_hist = pd.DataFrame(hist)
+            df_hist_cn = rename_columns(df_hist, OUTPUT_LABELS)
+
+            col_a, col_b = st.columns([1, 2])
+            with col_a:
+                st.markdown("#### 收敛历史数据")
+                st.dataframe(
+                    style_dataframe(df_hist_cn, precision=4),
+                    use_container_width=True,
+                    height=500,
+                )
+            with col_b:
+                st.markdown("#### 残差收敛曲线")
+                fig = plot_line(
+                    df_hist, "Iter",
+                    ["SUMFE", "SUMWE", "SUMX"],
+                    "气体组分 / 固体质量流 / 碳转化率 残差收敛曲线",
+                    "残差 (log 尺度)",
+                )
+                fig.update_yaxes(type="log")
+                st.plotly_chart(fig, use_container_width=True)
+
+                fig2 = plot_line(
+                    df_hist, "Iter",
+                    ["SUMT"],
+                    "温度残差收敛曲线",
+                    "温度残差",
+                )
+                st.plotly_chart(fig2, use_container_width=True)
+        else:
+            st.warning("未解析到收敛历史")
 
     # -----------------------------------------------------------------------
-    # 合成气成分
+    # Tab 2: 合成气成分
     # -----------------------------------------------------------------------
-    st.subheader("🧪 合成气成分")
-    col_g1, col_g2 = st.columns(2)
-    with col_g1:
-        st.markdown("**干气成分 (%)**")
-        df_syngas = pd.DataFrame([syngas])
-        st.dataframe(df_syngas, use_container_width=True)
-    with col_g2:
-        st.markdown("**体积流量 (Nm³/s)**")
-        df_vol = pd.DataFrame([result.get("volume_flow", {})])
-        st.dataframe(df_vol, use_container_width=True)
+    with tab2:
+        syngas = result.get("syngas_composition", {})
+        volume = result.get("volume_flow", {})
 
-    if syngas:
-        st.bar_chart(pd.Series(syngas), use_container_width=True)
+        if syngas:
+            col_a, col_b = st.columns(2)
+            with col_a:
+                st.markdown("#### 干煤气成分")
+                df_syn = pd.DataFrame([syngas])
+                df_syn_cn = rename_columns(df_syn, OUTPUT_LABELS)
+                st.dataframe(style_dataframe(df_syn_cn, precision=4), use_container_width=True)
+                fig = plot_bar(syngas, "干煤气成分占比", "体积百分比 (%)")
+                st.plotly_chart(fig, use_container_width=True)
 
-    # -----------------------------------------------------------------------
-    # 沿炉膛分布
-    # -----------------------------------------------------------------------
-    st.subheader("🏭 沿炉膛分布")
-
-    internal = result.get("internal_profile", [])
-    gas_prof = result.get("gas_composition_profile", [])
-
-    if internal:
-        df_internal = pd.DataFrame(internal)
-        tab3, tab4 = st.tabs(["内部参数", "气体成分"])
-        with tab3:
-            st.dataframe(df_internal, use_container_width=True)
-            st.line_chart(df_internal.set_index("I")[["T(C)", "U0(m/s)", "X(%)"]])
-            st.line_chart(df_internal.set_index("I")[["WE(kg/s)"]])
-        with tab4:
-            df_gas = pd.DataFrame(gas_prof)
-            st.dataframe(df_gas, use_container_width=True)
-            st.line_chart(df_gas.set_index("I")[["CO", "CO2", "H2", "CH4"]])
-            st.line_chart(df_gas.set_index("I")[["O2", "H2O", "N2", "H2S"]])
-    else:
-        st.warning("未解析到沿炉膛分布数据")
+            with col_b:
+                st.markdown("#### 体积流量")
+                df_vol = pd.DataFrame([volume])
+                df_vol_cn = rename_columns(df_vol, OUTPUT_LABELS)
+                st.dataframe(style_dataframe(df_vol_cn, precision=4), use_container_width=True)
+                fig2 = plot_bar(volume, "各组分体积流量", "流量 (Nm³/s)")
+                st.plotly_chart(fig2, use_container_width=True)
+        else:
+            st.warning("未解析到合成气成分")
 
     # -----------------------------------------------------------------------
-    # 原始输出
+    # Tab 3: 沿炉膛分布
     # -----------------------------------------------------------------------
-    with st.expander("📝 原始 GASTEST.DAT"):
+    with tab3:
+        internal = result.get("internal_profile", [])
+        gas_prof = result.get("gas_composition_profile", [])
+
+        if internal:
+            df_internal = pd.DataFrame(internal)
+            df_internal_cn = rename_columns(df_internal, OUTPUT_LABELS)
+
+            st.markdown("#### 内部参数分布")
+            st.dataframe(style_dataframe(df_internal_cn, precision=3), use_container_width=True, height=380)
+
+            col_c, col_d = st.columns(2)
+            with col_c:
+                fig_temp = plot_line(
+                    df_internal, "I",
+                    ["T(C)"],
+                    "沿炉膛温度分布",
+                    "温度 (°C)",
+                )
+                st.plotly_chart(fig_temp, use_container_width=True)
+
+                fig_we = plot_line(
+                    df_internal, "I",
+                    ["WE(kg/s)"],
+                    "沿炉膛碳质量流分布",
+                    "碳质量流 (kg/s)",
+                )
+                st.plotly_chart(fig_we, use_container_width=True)
+
+            with col_d:
+                fig_x = plot_line(
+                    df_internal, "I",
+                    ["X(%)"],
+                    "沿炉膛碳转化率分布",
+                    "碳转化率 (%)",
+                )
+                st.plotly_chart(fig_x, use_container_width=True)
+
+                fig_u0 = plot_line(
+                    df_internal, "I",
+                    ["U0(m/s)"],
+                    "沿炉膛气体速度分布",
+                    "气体速度 (m/s)",
+                )
+                st.plotly_chart(fig_u0, use_container_width=True)
+
+            st.markdown("#### 气体成分分布")
+            if gas_prof:
+                df_gas = pd.DataFrame(gas_prof)
+                df_gas_cn = rename_columns(df_gas, OUTPUT_LABELS)
+                st.dataframe(style_dataframe(df_gas_cn, precision=3), use_container_width=True, height=380)
+
+                col_e, col_f = st.columns(2)
+                with col_e:
+                    fig_main = plot_line(
+                        df_gas, "I",
+                        ["CO", "CO2", "H2", "CH4"],
+                        "主要可燃/含碳组分沿炉膛分布",
+                        "体积百分比 (%)",
+                        color_map=GAS_COLORS,
+                    )
+                    st.plotly_chart(fig_main, use_container_width=True)
+                with col_f:
+                    fig_other = plot_line(
+                        df_gas, "I",
+                        ["O2", "H2O", "N2", "H2S"],
+                        "其他组分沿炉膛分布",
+                        "体积百分比 (%)",
+                        color_map=GAS_COLORS,
+                    )
+                    st.plotly_chart(fig_other, use_container_width=True)
+        else:
+            st.warning("未解析到沿炉膛分布数据")
+
+    # -----------------------------------------------------------------------
+    # Tab 4: 原始输出
+    # -----------------------------------------------------------------------
+    with tab4:
         if OUTPUT_FILE.exists():
+            st.markdown("#### GASTEST.DAT 原始文本")
             st.text(OUTPUT_FILE.read_text(encoding="gbk", errors="ignore"))
 
 
