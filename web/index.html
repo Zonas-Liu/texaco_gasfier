@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TEXACO 气化炉 CFD 模拟平台</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <script src="/static/js/plotly.min.js" defer></script>
+    <script src="/static/js/app.js" defer></script>
+</head>
+<body>
+    <header>
+        <h1>🔥 TEXACO 气化炉 CFD 模拟平台</h1>
+        <p>纯 HTML 前端方案 · 编辑参数、运行模拟并可视化 GASTEST.DAT 输出结果</p>
+    </header>
+
+    <div class="container">
+        <aside class="sidebar">
+            <h2>⚙️ 输入参数编辑</h2>
+            <p style="font-size:0.85rem;color:var(--muted);">修改后保存或运行，运行前会自动写入 data/Datain0.dat。</p>
+            <div id="params-form"></div>
+            <div class="actions">
+                <button id="btn-save" class="btn btn-save">💾 保存输入</button>
+                <button id="btn-run" class="btn btn-run">🚀 运行模拟</button>
+            </div>
+            <div id="sidebar-msg"></div>
+        </aside>
+
+        <main class="main">
+            <div id="progress-card" class="progress-card" style="display:none;">
+                <strong>模拟进度</strong>
+                <div class="progress-bar"><div id="progress-fill" class="progress-fill"></div></div>
+                <div id="progress-text" class="progress-text">等待运行</div>
+            </div>
+
+            <div id="results-area" style="display:none;">
+                <div class="summary-grid" id="summary-grid"></div>
+
+                <div class="tabs">
+                    <button class="tab-btn active" data-tab="tab-history">📈 收敛历史</button>
+                    <button class="tab-btn" data-tab="tab-syngas">🧪 合成气成分</button>
+                    <button class="tab-btn" data-tab="tab-profile">🏭 沿炉膛分布</button>
+                    <button class="tab-btn" data-tab="tab-raw">📝 原始输出</button>
+                </div>
+
+                <div id="tab-history" class="tab-panel active">
+                    <div class="two-col">
+                        <div class="card">
+                            <h3>收敛历史数据</h3>
+                            <div class="table-wrap" id="history-table"></div>
+                        </div>
+                        <div class="card">
+                            <h3>残差收敛曲线</h3>
+                            <div id="plot-history-main" class="plot"></div>
+                            <div id="plot-history-t" class="plot"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="tab-syngas" class="tab-panel">
+                    <div class="two-col">
+                        <div class="card">
+                            <h3>干煤气成分</h3>
+                            <div class="table-wrap" id="syngas-table"></div>
+                            <div id="plot-syngas" class="plot"></div>
+                        </div>
+                        <div class="card">
+                            <h3>干基体积流量</h3>
+                            <div class="table-wrap" id="volume-table"></div>
+                            <div id="plot-volume" class="plot"></div>
+                        </div>
+                    </div>
+                    <div class="card">
+                        <h3>💧 湿合成气组成（含 H₂O）</h3>
+                        <p id="wet-summary"></p>
+                        <div class="two-col">
+                            <div class="table-wrap" id="wet-table"></div>
+                            <div id="plot-wet" class="plot"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="tab-profile" class="tab-panel">
+                    <div class="card">
+                        <h3>内部参数分布</h3>
+                        <div class="table-wrap" id="internal-table"></div>
+                        <div class="two-col">
+                            <div id="plot-temp" class="plot"></div>
+                            <div id="plot-x" class="plot"></div>
+                            <div id="plot-we" class="plot"></div>
+                            <div id="plot-u0" class="plot"></div>
+                        </div>
+                    </div>
+                    <div class="card">
+                        <h3>气体成分分布</h3>
+                        <div class="table-wrap" id="gas-table"></div>
+                        <div class="two-col">
+                            <div id="plot-gas-main" class="plot"></div>
+                            <div id="plot-gas-other" class="plot"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="tab-raw" class="tab-panel">
+                    <div class="card">
+                        <h3>GASTEST.DAT 原始文本</h3>
+                        <pre id="raw-output" class="raw-output">加载中...</pre>
+                    </div>
+                </div>
+            </div>
+
+            <div id="console-area" style="display:none;">
+                <div class="card">
+                    <h3>控制台输出</h3>
+                    <pre id="console-output" class="console"></pre>
+                </div>
+            </div>
+        </main>
+    </div>
+</body>
+</html>
