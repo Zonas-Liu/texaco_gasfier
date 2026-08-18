@@ -39,57 +39,6 @@ def eingab(data_path='data/Datain0.dat', output_file=None):
     common.XMOL = np.array([32., 16., 28., 44., 34., 2., 28., 18., 12., 60.])
     common.XMTAR = 12.913  # 焦油分子量
     
-    # 设置基本控制参数
-    common.KCHECK = 0  # 与Fortran一致 (Wg2.for line 17)
-    common.KTRLT = 1
-    common.KTRLR = 1
-    common.NZWS = 30
-    # 注意: 使用0-based索引 (Fortran使用1-based)
-    # 转换关系: Python_index = Fortran_index - 1
-    common.NZEL1 = 1   # Fortran NZEL1=1 (1-based indexing)
-    common.NZEL2 = 30  # Fortran NZEL2=30
-    common.NZRE = 30   # Fortran NZRE=30
-    
-    # 设置结构参数 (炉子分段边界)
-    common.NZR1 = 29  # Fortran 29
-    common.NZR2 = 27  # Fortran 27
-    common.NZR3 = 25  # Fortran 25
-    common.NZR4 = 23  # Fortran 23
-    common.NZR5 = 16  # Fortran 16
-    common.NZR6 = 9   # Fortran 9
-    common.NZR7 = 5   # Fortran 5
-    
-    # 进料相关参数
-    common.N2FED = 7  # Fortran N2FED=7
-    common.NZRA = 1   # Fortran NZRA=1 (1-based indexing)
-    common.NPRIX = 1  # Fortran NPRIX=1
-    nzfed0 = 1  # Fortran nzfed0=1 (number of feed cells)
-    
-    # 反应控制参数
-    common.KTRL_XK1 = 1
-    common.KTRL_XK2 = 1
-    common.KTRL_XK3 = 3
-    common.KTRL_XK4 = 1
-    common.KTRL_XK5 = 3
-    
-    # 控制系数
-    common.CTRL_A1 = 0.28
-    common.CTRL_A2 = 1.0
-    common.CTRL_A3 = 1.0
-    common.CTRL_A4 = 0.23
-    common.CTRL_A5 = 1.0
-    
-    # 系数
-    common.COEF_A1 = 0.1
-    common.COEF_A2 = 0.1
-    common.COEF_A3 = 0.1
-    common.COEF_A4 = 0.1
-    
-    # 密度参数
-    common.RO_SLURRY = 1260.0
-    common.ROS0 = 1260.0
-    common.QH_CRCT = 0.0
-    
     # 读取输入数据文件
     # 使用项目根目录作为基准
     project_root = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
@@ -179,6 +128,87 @@ def eingab(data_path='data/Datain0.dat', output_file=None):
     # Line 11: QLOSS
     values = parse_line(lines[10])
     common.QLOSS = values[0]
+    
+    # ---------------------------------------------------------
+    # 晋华炉3.0可选参数 (jinhualu分支新增, 缺省用common默认值, 向后兼容)
+    # Line 12: KMODEL, P_DRUM, T_FW
+    # Line 13: TW_WALL, TW_RSC, D_RSC, H_RSC, N_RSC
+    # Line 14: KRELAX_WGS, KRELAX_METH
+    # ---------------------------------------------------------
+    if len(lines) > 11:
+        values = parse_line(lines[11])
+        if len(values) >= 3:
+            common.KMODEL = int(values[0])
+            common.P_DRUM = values[1]
+            common.T_FW = values[2]
+    if common.KMODEL == 1 and len(lines) > 12:
+        values = parse_line(lines[12])
+        if len(values) >= 5:
+            common.TW_WALL = values[0]
+            common.TW_RSC = values[1]
+            common.D_RSC = values[2]
+            common.H_RSC = values[3]
+            common.N_RSC = int(values[4])
+    if common.KMODEL == 1 and len(lines) > 13:
+        values = parse_line(lines[13])
+        if len(values) >= 2:
+            common.KRELAX_WGS = values[0]
+            common.KRELAX_METH = values[1]
+    
+    # 设置基本控制参数
+    common.KCHECK = 0  # 与Fortran一致 (Wg2.for line 17)
+    common.KTRLT = 1
+    common.KTRLR = 1
+    common.NZRC = 30   # 燃烧室出口格号 (固定不变)
+    if common.KMODEL == 1:
+        # 晋华炉: 燃烧室30格 + 辐射废锅段N_RSC格
+        common.NZWS = common.NZRC + common.N_RSC
+    else:
+        common.NZWS = 30
+    # 注意: 格子索引与Fortran一致(1-based), 数组预留0号索引
+    common.NZEL1 = 1   # Fortran NZEL1=1 (1-based indexing)
+    common.NZEL2 = common.NZWS
+    common.NZRE = common.NZWS
+    
+    # 设置结构参数 (炉子分段边界)
+    common.NZR1 = 29  # Fortran 29
+    common.NZR2 = 27  # Fortran 27
+    common.NZR3 = 25  # Fortran 25
+    common.NZR4 = 23  # Fortran 23
+    common.NZR5 = 16  # Fortran 16
+    common.NZR6 = 9   # Fortran 9
+    common.NZR7 = 5   # Fortran 5
+    
+    # 进料相关参数
+    common.N2FED = 7  # Fortran N2FED=7
+    common.NZRA = 1   # Fortran NZRA=1 (1-based indexing)
+    common.NPRIX = 1  # Fortran NPRIX=1
+    nzfed0 = 1  # Fortran nzfed0=1 (number of feed cells)
+    
+    # 反应控制参数
+    common.KTRL_XK1 = 1
+    common.KTRL_XK2 = 1
+    common.KTRL_XK3 = 3
+    common.KTRL_XK4 = 1
+    common.KTRL_XK5 = 3
+    
+    # 控制系数
+    common.CTRL_A1 = 0.28
+    common.CTRL_A2 = 1.0
+    common.CTRL_A3 = 1.0
+    common.CTRL_A4 = 0.23
+    common.CTRL_A5 = 1.0
+    
+    # 系数
+    common.COEF_A1 = 0.1
+    common.COEF_A2 = 0.1
+    common.COEF_A3 = 0.1
+    common.COEF_A4 = 0.1
+    
+    # 密度参数
+    common.RO_SLURRY = 1260.0
+    common.ROS0 = 1260.0
+    common.QH_CRCT = 0.0
     
     print('END OF INPUT DATA!!')
     
@@ -302,6 +332,13 @@ def eingab(data_path='data/Datain0.dat', output_file=None):
             common.T[i] = 1500.0
             common.X[i] = 0.0665412e+00
             common.WE[i] = 0.5217118
+        
+        # 晋华炉: RSC段采用递减温度初值 (帮助收敛)
+        if common.KMODEL == 1 and common.NZRE > common.NZRC:
+            n_rsc = common.NZRE - common.NZRC
+            for i in range(common.NZRC + 1, common.NZRE + 1):
+                frac = (i - common.NZRC) / n_rsc
+                common.T[i] = 1300.0 - frac * 250.0  # 1300K -> 1050K线性分布
     
     # 输出信息
     print('\n4. 进料参数')
@@ -405,8 +442,8 @@ def geometry():
         - 计算每个格子的高度DELZ和位置H
         - 计算每个格子的截面积AT和周长AR
     
-    炉子结构(从顶部到底部):
-        HREAK1=0.4m,    DIA1=1.005m,   NZRE=30 到 NZR1=29
+    炉子结构(沿流动方向, 从第1格到NZRE):
+        HREAK1=0.4m,    DIA1=1.005m,   格子 NZRC=30 到 NZR1=29
         HREAK2=0.4m,    DIA2=0.935m,   NZR1-1=28 到 NZR2=27
         HREAK3=0.1926m, DIA3=1.175m,   NZR2-1=26 到 NZR3=25
         HREAK4=0.1926m, DIA4=1.725m,   NZR3-1=24 到 NZR4=23
@@ -414,6 +451,9 @@ def geometry():
         HREAK6=3.4m,    DIA6=2.0m,     NZR5-1=15 到 NZR6=9
         HREAK7=0.1876m, DIA7=1.675m,   NZR6-1=8 到 NZR7=5
         HREAK8=0.1876m, DIA8=1.025m,   NZR7-1=4 到 NZRA=1
+        
+    晋华炉3.0 (KMODEL=1) 时, 燃烧室下游追加辐射废锅段:
+        H_RSC=12.0m, D_RSC=2.6m, 格子 NZRC+1=31 到 NZRE=NZRC+N_RSC
     """
     # 各段高度 [m]
     hreak1 = 0.4
@@ -445,12 +485,12 @@ def geometry():
         common.AT[i] = 0.0
         common.AR[i] = 0.0
     
-    # 第1段: NZRE=30 到 NZR1=29 (顶部最窄段)
+    # 第1段: NZRC=30 到 NZR1=29 (燃烧室出口段)
     # 使用DIA1, HREAK1
-    n_cells_1 = common.NZRE - common.NZR1 + 1  # = 2个格子
-    for i in range(common.NZRE, common.NZR1 - 1, -1):
+    n_cells_1 = common.NZRC - common.NZR1 + 1  # = 2个格子
+    for i in range(common.NZRC, common.NZR1 - 1, -1):
         common.DELZ[i] = hreak1 / n_cells_1
-        common.H[i] = common.DELZ[i] * (common.NZRE - i + 1)
+        common.H[i] = common.DELZ[i] * (common.NZRC - i + 1)
         common.AT[i] = common.DIA1 * common.DIA1 * common.PI / 4.0
         common.AR[i] = common.DIA1 * common.PI
     
@@ -520,6 +560,19 @@ def geometry():
                       common.DELZ[i] * (common.NZR7 - i))
         common.AT[i] = common.DIA8 * common.DIA8 * common.PI / 4.0
         common.AR[i] = common.DIA8 * common.PI
+    
+    # ---------------------------------------------------------
+    # 晋华炉3.0: 辐射废锅段 (NZRC+1 到 NZRE)
+    # 位于燃烧室下游, 等直径直段, 膜式水冷壁回收热量
+    # ---------------------------------------------------------
+    if common.KMODEL == 1 and common.NZRE > common.NZRC:
+        n_rsc = common.NZRE - common.NZRC
+        delz_rsc = common.H_RSC / n_rsc
+        for i in range(common.NZRC + 1, common.NZRE + 1):
+            common.DELZ[i] = delz_rsc
+            common.H[i] = common.HREAK + delz_rsc * (i - common.NZRC)
+            common.AT[i] = common.D_RSC * common.D_RSC * common.PI / 4.0
+            common.AR[i] = common.D_RSC * common.PI
     
     # 计算HNZFR和HFED
     common.HNZFR = 0.0

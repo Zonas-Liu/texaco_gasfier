@@ -195,9 +195,16 @@ def write_datain0(path: Path, params: Dict[str, Any]) -> None:
         "------------------------TU,TW,PWK",
         "--------------------------------------------QLOSS",
     ]
+    # 先读取额外参数行（如晋华炉3.0新增的第12-14行），避免GUI保存时丢失
+    extra_lines = []
+    if path.exists():
+        existing = [l for l in path.read_text(encoding="utf-8", errors="ignore").splitlines() if l.strip()]
+        extra_lines = existing[len(comments):]
     with open(path, "w", encoding="utf-8") as f:
         for line, cmt in zip(lines, comments):
             f.write(f"{line}/{cmt}\n")
+        for extra in extra_lines:
+            f.write(extra + "\n")
 
 
 # ---------------------------------------------------------------------------

@@ -263,6 +263,40 @@ def _calculate_dmat_for_cell(
     common.DMAT[8, i] -= ra5
     
     # ---------------------------------------------------------
+    # 晋华炉3.0: 辐射废锅段平衡反应松弛源项 (jinhualu分支新增)
+    # 仅作用于 RSC 段 (i > NZRC)，考虑两个平衡反应:
+    #   WGS:     CO + H2O <-> CO2 + H2
+    #   甲烷化:  CO + 3H2 <-> CH4 + H2O
+    # 采用部分平衡松弛: R = KRELAX * 驱动力 * FEM[i] [kmol/s]
+    # 源项连续可微，雅可比由数值微分自动获得
+    # 反应热经 HENTH(含生成焓) 自动计入能量平衡
+    # ---------------------------------------------------------
+    if common.KMODEL == 1 and i > common.NZRC and common.FEM[i] > 0.0:
+        y_o2, y_ch4, y_co, y_co2 = common.Y[1], common.Y[2], common.Y[3], common.Y[4]
+        y_h2, y_h2o = common.Y[6], common.Y[8]
+        t_i = max(common.T[i], 500.0)
+        
+        # WGS平衡常数: K = [CO2][H2]/([CO][H2O])
+        k_wgs = np.exp(4577.8 / t_i - 4.33)
+        drive_wgs = y_co * y_h2o - y_co2 * y_h2 / max(k_wgs, 1.0e-30)
+        r_wgs = common.KRELAX_WGS * drive_wgs * common.FEM[i]
+        
+        # 甲烷化平衡常数 [1/bar^2], 298K标准态范特霍夫近似
+        # K = [CH4][H2O]/([CO][H2]^3) * (P0/P)^2
+        k_meth = np.exp(24766.0 / t_i - 25.82)
+        p_ratio2 = (common.PWK / common.P0) ** 2
+        denom = max(k_meth * p_ratio2, 1.0e-30)
+        drive_meth = y_co * y_h2 ** 3 - y_ch4 * y_h2o / denom
+        r_meth = common.KRELAX_METH * drive_meth * common.FEM[i]
+        
+        # 施加到DMAT组分平衡行 (r>0 表示正向进行)
+        common.DMAT[2, i] += r_meth          # CH4 生成
+        common.DMAT[3, i] -= r_wgs + r_meth  # CO 消耗
+        common.DMAT[4, i] += r_wgs           # CO2 生成
+        common.DMAT[6, i] += r_wgs - 3.0 * r_meth  # H2
+        common.DMAT[8, i] -= r_wgs - r_meth  # H2O
+    
+    # ---------------------------------------------------------
     # DMAT(NSGP,I): 固体质量平衡 (碳 + 灰分)
     # ---------------------------------------------------------
     nsgp = common.NSGP
@@ -368,15 +402,22 @@ def _calculate_dmat_for_cell(
         )
         
         # 热损失计算
+        # 晋华炉3.0 (KMODEL=1): 燃烧室段为水冷壁(渣层表面温度TW_WALL),
+        # RSC段为废锅壁面(TW_RSC); TEXACO (KMODEL=0) 为耐火砖壁温TW
         if wdkr_func is not None:
-            if common.T[i] > common.TW:
-                common.QKW[i] = wdkr_func(common.T[i], common.TW) * common.AR[i] * common.DELZ[i] * (common.T[i] - common.TW)
+            if common.KMODEL == 1:
+                tw_i = common.TW_WALL if i <= common.NZRC else common.TW_RSC
+            else:
+                tw_i = common.TW
+            if common.T[i] > tw_i:
+                common.QKW[i] = wdkr_func(common.T[i], tw_i) * common.AR[i] * common.DELZ[i] * (common.T[i] - tw_i)
             else:
                 common.QKW[i] = 0.0
             common.DMAT[nvws, i] -= common.QKW[i]
         
-        # 热损失校正
-        common.DMAT[nvws, i] -= common.QLOSS * common.BSMS * common.HU * 1000.0 * common.DELZ[i] / common.HREAK
+        # 热损失校正 (仅作用于燃烧室段; RSC段热回收由QKW显式计算)
+        if i <= common.NZRC:
+            common.DMAT[nvws, i] -= common.QLOSS * common.BSMS * common.HU * 1000.0 * common.DELZ[i] / common.HREAK
         
         # 第一反应区热校正
         if i <= common.NZFR:
@@ -450,10 +491,10 @@ def gasifier(
     
     # 用于保存数值微分前的原始状态，避免副作用
     # 必须在所有Cell计算之前保存全局原始值
-    xms_orig = np.zeros(31)
-    trz_orig = np.zeros(31)
-    us_orig = np.zeros(31)
-    u0_orig = np.zeros(31)
+    xms_orig = np.zeros(common.NZDIM)
+    trz_orig = np.zeros(common.NZDIM)
+    us_orig = np.zeros(common.NZDIM)
+    u0_orig = np.zeros(common.NZDIM)
     for ii in range(common.NZRA, common.NZRE + 1):
         xms_orig[ii] = common.XMS[ii]
         trz_orig[ii] = common.TRZ[ii]

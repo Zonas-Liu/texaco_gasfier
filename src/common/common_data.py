@@ -12,6 +12,9 @@ class CommonData:
     单例类，用于存储全局共享数据，对应Fortran的Common块
     """
     _instance = None
+
+    # 数组维度常量: 燃烧室30格 + RSC段最多30格 + 1个闲置的0号索引
+    NZDIM = 61
     
     def __new__(cls):
         if cls._instance is None:
@@ -54,6 +57,7 @@ class CommonData:
         self.NZR2 = 27
         self.NZR3 = 25
         self.NZRE = 30  # Fortran NZRE=30 (1-based, cells 1-30)
+        self.NZRC = 30  # 燃烧室出口格号 (晋华炉: RSC段从NZRC+1开始)
         
         self.NPRIX = 1
         self.NZFR = 0
@@ -104,10 +108,10 @@ class CommonData:
     
     def init_geometry(self):
         """Common.01 - 几何参数"""
-        self.H = np.zeros(31)          # 格子高度位置 [m] (1-based in Fortran)
-        self.DELZ = np.zeros(31)       # 格子高度 [m]
-        self.AT = np.zeros(31)         # 格子截面积 [m^2]
-        self.AR = np.zeros(31)         # 格子半径 [m]
+        self.H = np.zeros(self.NZDIM)          # 格子高度位置 [m] (1-based in Fortran)
+        self.DELZ = np.zeros(self.NZDIM)       # 格子高度 [m]
+        self.AT = np.zeros(self.NZDIM)         # 格子截面积 [m^2]
+        self.AR = np.zeros(self.NZDIM)         # 格子半径 [m]
         self.HREAK = 0.0               # 炉总高度 [m]
         self.DIA1 = 0.0                # 炉直径 [m]
         self.DIA2 = 0.0
@@ -151,9 +155,9 @@ class CommonData:
         self.FOXY = 1.06               # 氧气过剩系数
         
         # 密度和粘度
-        self.ROS = np.zeros(31)        # 固体密度 [kg/m^3]
-        self.ROG = np.zeros(31)        # 气体密度 [kg/m^3]
-        self.XMUG = np.zeros(31)       # 气体粘度 [Pa·s]
+        self.ROS = np.zeros(self.NZDIM)        # 固体密度 [kg/m^3]
+        self.ROG = np.zeros(self.NZDIM)        # 气体密度 [kg/m^3]
+        self.XMUG = np.zeros(self.NZDIM)       # 气体粘度 [Pa·s]
         
         # 系统压力 (默认值，实际从DAT文件读取)
         self.PWK = 67.0e5              # 工作压力 [Pa] (67.0D05 in DAT file)
@@ -175,35 +179,35 @@ class CommonData:
     def init_unknowns(self):
         """Common.02 - 求解变量"""
         # 未知数 (NGAS=8, NZWS=30)
-        self.FEMF = np.zeros((9, 31))     # 各组分摩尔流量 [kmol/s] (1-based)
-        self.X = np.zeros(31)              # 碳转化率
-        self.T = np.zeros(31)              # 温度 [K]
-        self.WE = np.zeros(31)             # 碳质量流量 [kg/s]
+        self.FEMF = np.zeros((9, self.NZDIM))     # 各组分摩尔流量 [kmol/s] (1-based)
+        self.X = np.zeros(self.NZDIM)              # 碳转化率
+        self.T = np.zeros(self.NZDIM)              # 温度 [K]
+        self.WE = np.zeros(self.NZDIM)             # 碳质量流量 [kg/s]
         
         # 流动参数
-        self.FEM = np.zeros(31)            # 总摩尔流量 [kmol/s]
-        self.U0 = np.zeros(31)             # 气体速度 [m/s]
-        self.US = np.zeros(31)             # 颗粒速度 [m/s]
-        self.TRZ = np.zeros(31)            # 停留时间 [s]
-        self.XMS = np.zeros(31)            # 格子内固体质量 [kg]
-        self.EPS = np.zeros(31)            # 空隙率
+        self.FEM = np.zeros(self.NZDIM)            # 总摩尔流量 [kmol/s]
+        self.U0 = np.zeros(self.NZDIM)             # 气体速度 [m/s]
+        self.US = np.zeros(self.NZDIM)             # 颗粒速度 [m/s]
+        self.TRZ = np.zeros(self.NZDIM)            # 停留时间 [s]
+        self.XMS = np.zeros(self.NZDIM)            # 格子内固体质量 [kg]
+        self.EPS = np.zeros(self.NZDIM)            # 空隙率
     
     def init_flow(self):
         """Common.02 - 流动参数"""
-        self.FEM = np.zeros(31)            # 总摩尔流量 [kmol/s]
-        self.U0 = np.zeros(31)             # 气体速度 [m/s]
-        self.US = np.zeros(31)             # 颗粒速度 [m/s]
-        self.TRZ = np.zeros(31)            # 停留时间 [s]
-        self.XMS = np.zeros(31)            # 格子内固体质量 [kg]
-        self.EPS = np.zeros(31)            # 空隙率
+        self.FEM = np.zeros(self.NZDIM)            # 总摩尔流量 [kmol/s]
+        self.U0 = np.zeros(self.NZDIM)             # 气体速度 [m/s]
+        self.US = np.zeros(self.NZDIM)             # 颗粒速度 [m/s]
+        self.TRZ = np.zeros(self.NZDIM)            # 停留时间 [s]
+        self.XMS = np.zeros(self.NZDIM)            # 格子内固体质量 [kg]
+        self.EPS = np.zeros(self.NZDIM)            # 空隙率
     
     def init_feed(self):
         """Common.02 - 进料参数"""
-        self.FEDH2O = np.zeros(31)         # H2O进料 [kmol/s]
-        self.WFA = np.zeros(31)            # 灰分质量流量 [kg/s]
-        self.WFC = np.zeros(31)            # 固定碳质量流量 [kg/s]
-        self.FEEDO2 = np.zeros(31)         # O2进料 [kmol/s]
-        self.FEEDN2 = np.zeros(31)         # N2进料 [kmol/s]
+        self.FEDH2O = np.zeros(self.NZDIM)         # H2O进料 [kmol/s]
+        self.WFA = np.zeros(self.NZDIM)            # 灰分质量流量 [kg/s]
+        self.WFC = np.zeros(self.NZDIM)            # 固定碳质量流量 [kg/s]
+        self.FEEDO2 = np.zeros(self.NZDIM)         # O2进料 [kmol/s]
+        self.FEEDN2 = np.zeros(self.NZDIM)         # N2进料 [kmol/s]
         
         self.TFEED_OX = 393.15             # 氧气进料温度 [K]
         self.PFEED_OX = 40.83e5            # 氧气进料压力 [Pa]
@@ -213,20 +217,20 @@ class CommonData:
         
         self.TFEED_CO2 = 393.15            # CO2进料温度 [K]
         self.PFEED_CO2 = 40.83e5           # CO2进料压力 [Pa]
-        self.FEDCO2 = np.zeros(31)         # CO2进料 [kmol/s]
+        self.FEDCO2 = np.zeros(self.NZDIM)         # CO2进料 [kmol/s]
     
     def init_volatile(self):
         """Common.02 - 挥发分释放"""
-        self.RVCH4 = np.zeros(31)          # CH4释放速率 [kmol/s]
-        self.RVH2 = np.zeros(31)           # H2释放速率 [kmol/s]
-        self.RCO = np.zeros(31)            # CO释放速率 [kmol/s]
-        self.RCO2 = np.zeros(31)           # CO2释放速率 [kmol/s]
-        self.RVTAR = np.zeros(31)          # 焦油释放速率 [kmol/s]
-        self.RH2S = np.zeros(31)           # H2S释放速率 [kmol/s]
-        self.RH2 = np.zeros(31)            # H2释放速率 (另一种) [kmol/s]
-        self.RO2 = np.zeros(31)            # O2释放速率 [kmol/s]
-        self.REN2 = np.zeros(31)           # N2释放速率 [kmol/s]
-        self.RVH2O = np.zeros(31)          # H2O释放速率 [kmol/s]
+        self.RVCH4 = np.zeros(self.NZDIM)          # CH4释放速率 [kmol/s]
+        self.RVH2 = np.zeros(self.NZDIM)           # H2释放速率 [kmol/s]
+        self.RCO = np.zeros(self.NZDIM)            # CO释放速率 [kmol/s]
+        self.RCO2 = np.zeros(self.NZDIM)           # CO2释放速率 [kmol/s]
+        self.RVTAR = np.zeros(self.NZDIM)          # 焦油释放速率 [kmol/s]
+        self.RH2S = np.zeros(self.NZDIM)           # H2S释放速率 [kmol/s]
+        self.RH2 = np.zeros(self.NZDIM)            # H2释放速率 (另一种) [kmol/s]
+        self.RO2 = np.zeros(self.NZDIM)            # O2释放速率 [kmol/s]
+        self.REN2 = np.zeros(self.NZDIM)           # N2释放速率 [kmol/s]
+        self.RVH2O = np.zeros(self.NZDIM)          # H2O释放速率 [kmol/s]
         
         # 挥发分系数
         self.XCOCH = 0.0
@@ -241,27 +245,39 @@ class CommonData:
     
     def init_enthalpy(self):
         """Common.02 - 焓值相关"""
-        self.HENTH = np.zeros((16, 31))    # 组分焓值
-        self.DHDT = np.zeros((16, 31))     # 焓值温度导数
-        self.FEEDH = np.zeros((4, 31))     # 进料焓值
-        self.FEDPH = np.zeros((3, 31))     # 进料压力相关
-        self.HFH2O = np.zeros(31)          # H2O焓值
+        self.HENTH = np.zeros((16, self.NZDIM))    # 组分焓值
+        self.DHDT = np.zeros((16, self.NZDIM))     # 焓值温度导数
+        self.FEEDH = np.zeros((4, self.NZDIM))     # 进料焓值
+        self.FEDPH = np.zeros((3, self.NZDIM))     # 进料压力相关
+        self.HFH2O = np.zeros(self.NZDIM)          # H2O焓值
         
         self.QLOSS = 0.02                  # 热损失系数
         self.QH_CRCT = 0.0                 # 热校正
-        self.QKW = np.zeros(31)            # 热损失 [W]
+        self.QKW = np.zeros(self.NZDIM)    # 热损失 [W]
+
+        # ---- 晋华炉3.0 参数 (jinhualu分支新增, 已按典型工况调定) ----
+        self.KMODEL = 0          # 0=TEXACO(耐火砖), 1=晋华炉(水冷壁+RSC)
+        self.N_RSC = 30          # 辐射废锅段网格数
+        self.D_RSC = 2.6         # 辐射废锅直径 [m]
+        self.H_RSC = 30.0        # 辐射废锅高度 [m]
+        self.TW_WALL = 1773.0    # 燃烧室水冷壁渣层表面有效温度 [K]
+        self.TW_RSC = 673.0      # 辐射废锅壁面(积灰)有效温度 [K]
+        self.P_DRUM = 6.5e6      # 汽包压力 [Pa]
+        self.T_FW = 423.15       # 给水温度 [K]
+        self.KRELAX_WGS = 2.0    # WGS平衡松弛系数
+        self.KRELAX_METH = 0.02  # 甲烷化平衡松弛系数
         
-        self.RAC = np.zeros(31)            # 反应速率
+        self.RAC = np.zeros(self.NZDIM)            # 反应速率
         self.Y = np.zeros(9)               # 组分摩尔分数
     
     def init_matrix(self):
         """Common.03 - 矩阵"""
         # 注意: Fortran是AMAT(11,11,30), Python用(12,12,31)来保持1-based索引
         # 但使用(13,13,32)来避免某些情况下的越界
-        self.AMAT = np.zeros((13, 13, 32))
-        self.BMAT = np.zeros((13, 13, 32))
-        self.CMAT = np.zeros((13, 13, 32))
-        self.DMAT = np.zeros((13, 32))
+        self.AMAT = np.zeros((13, 13, self.NZDIM))
+        self.BMAT = np.zeros((13, 13, self.NZDIM))
+        self.CMAT = np.zeros((13, 13, self.NZDIM))
+        self.DMAT = np.zeros((13, self.NZDIM))
 
 
 # 全局单例实例

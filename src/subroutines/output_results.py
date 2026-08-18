@@ -202,6 +202,46 @@ def kolerg(output_file=None):
     outfile.write(f"\n    出口温度: {common.T[common.NZRE]-273.15:>8.3f} C    "
                   f"碳转化率: {conv_rate:>8.4f}\n")
     
+    # ---------------------------------------------------------
+    # 晋华炉3.0: 水冷壁/辐射废锅蒸汽产量汇总 (jinhualu分支新增)
+    # ---------------------------------------------------------
+    if common.KMODEL == 1:
+        from functions.steam_props import (tsat_water, h_sat_steam, h_feedwater,
+                                           steam_production)
+        
+        # 分段累加壁面回收热量
+        q_wall = sum(common.QKW[i] for i in range(common.NZRA, common.NZRC + 1))
+        q_rsc = sum(common.QKW[i] for i in range(common.NZRC + 1, common.NZRE + 1))
+        
+        stm_wall = steam_production(q_wall, common.P_DRUM, common.T_FW)
+        stm_rsc = steam_production(q_rsc, common.P_DRUM, common.T_FW)
+        
+        # 燃烧室出口 (NZRC) 干基成分
+        fem_rc = common.FEM[common.NZRC]
+        dry_rc = fem_rc - common.FEMF[8, common.NZRC]
+        
+        outfile.write("\n" + "=" * 60 + "\n")
+        outfile.write("    5. 晋华炉3.0 蒸汽回收汇总\n")
+        outfile.write("=" * 60 + "\n")
+        outfile.write(f"      汽包压力:           {common.P_DRUM/1.0e6:>10.2f} MPa\n")
+        outfile.write(f"      饱和温度:           {tsat_water(common.P_DRUM)-273.15:>10.2f} C\n")
+        outfile.write(f"      给水温度:           {common.T_FW-273.15:>10.2f} C\n")
+        outfile.write(f"      饱和蒸汽焓:         {h_sat_steam(common.P_DRUM):>10.2f} kJ/kg\n")
+        outfile.write(f"      给水焓:             {h_feedwater(common.T_FW):>10.2f} kJ/kg\n")
+        outfile.write("-" * 60 + "\n")
+        outfile.write(f"      燃烧室出口温度:     {common.T[common.NZRC]-273.15:>10.2f} C\n")
+        if dry_rc > 0:
+            outfile.write(f"      燃烧室出口干基CO:   {common.FEMF[3, common.NZRC]/dry_rc*100.:>10.2f} %\n")
+            outfile.write(f"      燃烧室出口干基H2:   {common.FEMF[6, common.NZRC]/dry_rc*100.:>10.2f} %\n")
+        outfile.write(f"      辐射废锅出口温度:   {common.T[common.NZRE]-273.15:>10.2f} C\n")
+        outfile.write("-" * 60 + "\n")
+        outfile.write(f"      水冷壁热负荷:       {q_wall/1.0e6:>10.3f} MW\n")
+        outfile.write(f"      水冷壁产汽量:       {stm_wall*3.6:>10.3f} t/h\n")
+        outfile.write(f"      辐射废锅热负荷:     {q_rsc/1.0e6:>10.3f} MW\n")
+        outfile.write(f"      辐射废锅产汽量:     {stm_rsc*3.6:>10.3f} t/h\n")
+        outfile.write(f"      总产汽量:           {(stm_wall+stm_rsc)*3.6:>10.3f} t/h\n")
+        outfile.write("=" * 60 + "\n")
+    
     # 保存结果到START.DAT文件
     start_dat_path = os.path.join(os.path.dirname(__file__), '..', '..', 'START.DAT')
     try:
