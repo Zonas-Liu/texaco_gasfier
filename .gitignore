@@ -83,6 +83,9 @@ out.txt
 stderr.txt
 stdout.txt
 
+# Deployment package artifacts
+deploy/
+
 # Generated test outputs
 numeric_test/fortran_output/
 numeric_test/python_output/
