@@ -96,4 +96,6 @@ for section in result['outlet_sections']:
 
 `loadParams/renderParams/collectParams`读元数据并双向转换显示单位；`saveParams/runSimulation`分别保存和启动；`pollProgress`跟踪进程/计算状态；`loadResults`加载输出；`activateTab/renderTab`延迟绘图；`renderOutlets`使用同次出口JSON；`renderFeedDesign/renderDesign`展示外层轨迹。
 
+`showSummary/renderProcess`把同次输出的摘要、出口和热回收数据绑定到工艺示意；不使用编辑中的参数补齐旧结果。TEXACO只显示一个出口且隐藏RSC与产汽区。`plotLine`温度图以第30格为交界分段着色并共用交界点，不平滑或改写原始数据；`syncDrawer/drawer`管理窄屏抽屉、inert和焦点回退。视觉规范及浏览器验收见[工艺工作台设计](../UI_REDESIGN_2026-11-02.md)。
+
 用户改参后旧结果仍可能保留显示，需要标记为上次结果；未达目标的结果只作诊断。前端缺数值显示破折号，不用默认零或示例结果填补。

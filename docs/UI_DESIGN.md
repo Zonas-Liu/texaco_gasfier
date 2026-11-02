@@ -1,6 +1,6 @@
 # Web 工作台 UI 设计
 
-范围：HTML + Flask。本文保留初次界面改版的设计与验收记录；后续Web已扩展到17行参数编辑，Streamlit仍编辑前11行并保留扩展。当前字段/单位以[输入协议](code_reference/05_INPUT_OUTPUT.md)为准。
+范围：HTML + Flask。本文保留初次界面改版的设计与验收记录；当前视觉设计已由[工艺工作台重构说明](UI_REDESIGN_2026-11-02.md)替代。Web已扩展到17行参数编辑，Streamlit仍编辑前11行并保留扩展。当前字段/单位以[输入协议](code_reference/05_INPUT_OUTPUT.md)为准。
 
 ## 设计规格
 

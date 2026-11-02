@@ -98,7 +98,8 @@ TEXACO（德士古）水煤浆气化炉 Fortran 程序的 Python 移植版（1D 
 - 审查说明与验证命令见 `docs/CODE_REVIEW_2026-11-02.md`；新回归测试使用标准库 unittest。
 
 ## Web 界面设计（2026-11-02）
-- `web/index.html` / `web/static/css/style.css` / `web/static/js/app.js` 采用浅色工作台，设计规格见 `docs/UI_DESIGN.md`。
+- `web/index.html` / `web/static/css/style.css` / `web/static/js/app.js` 采用工艺示意驱动的浅色工作台，现行设计与验收见 `docs/UI_REDESIGN_2026-11-02.md`；初版记录保留在 `docs/UI_DESIGN.md`。
+- `renderProcess` 仅绑定同次输出的双出口/热回收结果；TEXACO 自动退为单出口示意。温度曲线按燃烧室/RSC分段着色，保持原始网格值与线性连线；不得通过平滑或编辑参数改变历史结果显示。
 - Web 首次加载读取已有结果；参数搜索/折叠、结果标签页、窄屏抽屉及运行状态在原生 JavaScript 管理。
 - `web_backend/dataparser.py` 返回可选 `heat_recovery`，数值只解析同次 GASTEST 输出；无该段的 TEXACO 输出不显示产汽数据。
 - 图表按标签延迟绘制，显示缺值为破折号，不用设计稿示例数据；改参或计算中明确标记上次结果。

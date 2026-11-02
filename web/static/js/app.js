@@ -9,10 +9,10 @@ const OUTPUT_LABELS = {
   I: "格子号",
   "H(m)": "高度 (m)",
   "U0(m/s)": "气速 (m/s)",
-  "ResidenceTime(s)": "停留时间 (s)",
-  "WE(kg/s)": "碳质量流 (kg/s)",
+  "ResidenceTime(s)": "累计停留时间 (s)",
+  "WE(kg/s)": "总固体流 (kg/s)",
   "T(C)": "温度 (°C)",
-  "X(%)": "碳转化率 (%)",
+  "X(%)": "碳转化指标 (%)",
 };
 const GAS_LABELS = {
   O2: "O₂",
@@ -24,26 +24,9 @@ const GAS_LABELS = {
   N2: "N₂",
   H2O: "H₂O",
 };
-const COLORS = [
-  "#147d73",
-  "#e68136",
-  "#628cbd",
-  "#9676a8",
-  "#95a7b4",
-  "#b89260",
-  "#769b65",
-  "#809daa",
-];
-const GAS_COLORS = {
-  CO: "#147d73",
-  H2: "#429e92",
-  CO2: "#83bdb5",
-  CH4: "#e68136",
-  H2S: "#9676a8",
-  N2: "#95a7b4",
-  O2: "#628cbd",
-  H2O: "#809daa",
-};
+// 颜色具有固定语义：热端琥珀色，RSC冷蓝，物种颜色跨图表一致。
+const COLORS = ["#204f9c", "#c16b22", "#5a8cbb", "#8b6d9d", "#8492a6", "#9a7a55", "#607f6d", "#658e9a"];
+const GAS_COLORS = { CO:"#204f9c", H2:"#5a8cbb", CO2:"#a2b7d1", CH4:"#c16b22", H2S:"#8b6d9d", N2:"#8492a6", O2:"#607f6d", H2O:"#658e9a" };
 const $ = (id) => document.getElementById(id);
 const state = {
   info: {},
@@ -188,6 +171,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     drawer(!$("parameter-panel").classList.contains("open")),
   );
   $("sidebar-backdrop").addEventListener("click", () => drawer(false));
+  $("btn-close-params").addEventListener("click", () => drawer(false));
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape") drawer(false);
     if (e.key === "Tab" && document.body.classList.contains("drawer-open")) {
@@ -275,7 +259,7 @@ function renderParams(data) {
     if (group === "燃烧室反算") {
       const hint = document.createElement("p");
       hint.className = "parameter-hint";
-      hint.textContent = "给定燃烧室出口目标，反算氧煤比和煤浆量；其余工况保持不变。";
+      hint.textContent = "选择给定进料，或用出口温度与有效气量反算进料。";
       fields.append(hint);
     }
     if (group === "辐射废锅设计") {
@@ -289,7 +273,7 @@ function renderParams(data) {
       const row = document.createElement("div");
       row.className = "form-group";
       row.dataset.search = `${name} ${info.cn} ${info.desc}`.toLowerCase();
-      row.innerHTML = `<div class="field-label"><label for="param-${name}" title="${escapeHtml(info.desc)}">${escapeHtml(info.cn)}</label><small>${name}</small></div><div class="input-shell"><input id="param-${name}" name="${name}" type="number" step="${info.type === "int" ? "1" : "any"}" required aria-describedby="unit-${name}"><span class="field-unit" id="unit-${name}">${escapeHtml(info.display?.unit || info.unit || "无量纲")}</span></div>`;
+      row.innerHTML = `<div class="field-label"><label for="param-${name}" title="${escapeHtml(info.desc)}">${escapeHtml(info.cn)}</label><small>${name}</small></div><div class="input-shell"><input id="param-${name}" name="${name}" type="number" step="${info.type === "int" ? "1" : "any"}" required aria-describedby="unit-${name}"><span class="field-unit" id="unit-${name}">${escapeHtml(info.display?.unit || info.unit || "")}</span></div>`;
       if (info.options) {
         row.classList.add("select-field");
         const select = document.createElement("select");
@@ -477,6 +461,9 @@ async function loadResults() {
     $("btn-retry").hidden = e.status === 404;
     $("empty-title").textContent =
       e.status === 404 ? "准备第一个工况" : "结果读取失败";
+    $("result-caption").textContent = e.status === 404
+      ? "设置工况并运行模拟，生成第一组结果"
+      : "暂时无法读取结果，请重试";
     if (e.status !== 404) $("empty-message").textContent = e.message;
     status(
       e.status === 404 ? "等待计算" : "连接异常",
@@ -492,26 +479,16 @@ function showSummary(r) {
     last = hist.at(-1),
     heat = r.heat_recovery || {};
   const isRsc = Object.keys(heat).length > 0;
+  renderProcess(r, isRsc);
   $("model-name").textContent = isRsc ? "晋华炉 3.0" : "TEXACO";
-  const flows = Object.values(r.volume_flow || {});
-  const total = flows.length ? flows.reduce((a, b) => a + b, 0) : null;
+  const final = r.outlet_sections?.at(-1),
+    flows = Object.values(r.volume_flow || {}),
+    total = finite(final?.total_dry_nms) ? final.total_dry_nms : flows.length ? flows.reduce((a, b) => a + b, 0) : null;
   $("summary-grid").innerHTML =
-    metric(
-      isRsc ? "废锅出口温度" : "气化炉出口温度",
-      fmt(r.outlet?.["Temperature(C)"]),
-      "°C",
-    ) +
-    metric(
-      "碳转化率",
-      finite(r.outlet?.CarbonConversion)
-        ? fmt(r.outlet.CarbonConversion * 100)
-        : "—",
-      "%",
-    ) +
-    metric("干基煤气流量", fmt(total), "Nm³/s") +
-    (isRsc
-      ? metric("总产汽量", fmt(heat.steam_total_tph), "t/h")
-      : metric("迭代次数", last ? last.Iter : "—", "次"));
+    metric("碳转化率", finite(r.outlet?.CarbonConversion) ? fmt(r.outlet.CarbonConversion * 100) : "—", "%") +
+    metric("干基煤气流量", fmt(finite(total) ? total * 3600 : null, 0), "Nm³/h") +
+    metric("出口有效气量", fmt(final?.effective_gas_nmh, 0), "Nm³/h") +
+    (isRsc ? metric("总产汽量", fmt(heat.steam_total_tph), "t/h") : metric("迭代次数", last ? last.Iter : "—", "次"));
   status(
     last
       ? `${last.KONVER === 0 ? "已收敛" : "未收敛"} · ${last.Iter} 次迭代`
@@ -532,11 +509,32 @@ function showSummary(r) {
   $("heat-panel").hidden = !isRsc;
   $("zone-legend").hidden = !isRsc;
   renderDesign(r.rsc_design);
-  $("heat-metrics").innerHTML = isRsc
-    ? metric("水冷壁", fmt(heat.steam_wall_tph), "t/h") +
-      metric("辐射废锅", fmt(heat.steam_rsc_tph), "t/h") +
-      metric("汽包压力", fmt(heat.drum_pressure_mpa - 0.101325, 3), "MPaG")
-    : "";
+  const wall = heat.steam_wall_tph, rsc = heat.steam_rsc_tph;
+  $("heat-metrics").innerHTML = isRsc ?
+    `<div class="heat-row"><span>燃烧室水冷壁</span><small>回收热负荷 ${fmt(heat.heat_wall_mw, 3)} MW</small><strong>${fmt(wall)}<small>t/h</small></strong></div>
+     <div class="heat-row"><span>辐射废锅</span><small>回收热负荷 ${fmt(heat.heat_rsc_mw, 3)} MW</small><strong>${fmt(rsc)}<small>t/h</small></strong></div>
+     <div class="heat-row pressure"><span>汽包压力</span><strong>${fmt(finite(heat.drum_pressure_mpa) ? heat.drum_pressure_mpa - 0.101325 : null, 3)}<small>MPaG</small></strong></div>` : "";
+  const sum = finite(wall) && finite(rsc) ? wall + rsc : null;
+  $("heat-allocation").innerHTML = finite(sum) && sum > 0 && wall >= 0 && rsc >= 0 ?
+    `<div class="heat-allocation-label"><span>产汽分配</span><strong>废锅占比 ${fmt(rsc / sum * 100, 1)}%</strong></div><div class="heat-allocation-bar" aria-label="水冷壁与废锅产汽占比"><span style="width:${wall / sum * 100}%"></span><span style="width:${rsc / sum * 100}%"></span></div>` : "";
+}
+// 工艺示意只绑定本次结果，绝不借用用户正在编辑的参数填补旧输出。
+function renderProcess(r, isRsc) {
+  const sections = r.outlet_sections || [],
+    chamber = sections.find((s) => s.key === "chamber"),
+    rsc = sections.find((s) => s.key === "rsc");
+  $("process-board").classList.toggle("texaco", !isRsc);
+  document.querySelector(".process-section h2").textContent = isRsc ? "气化与热回收" : "气化流程";
+  document.querySelector(".gasifier-drawing").setAttribute("aria-label", isRsc ? "燃烧室与辐射废锅串联示意，非尺寸比例图" : "TEXACO 气化炉示意，非尺寸比例图");
+  $("chamber-stage-label").textContent = isRsc ? "燃烧室出口" : "气化炉出口";
+  $("process-chamber-temp").textContent = fmt(chamber?.temperature_c, 1);
+  $("process-chamber-gas").textContent = fmt(chamber?.effective_gas_nmh, 0);
+  $("process-rsc-temp").textContent = fmt(rsc?.temperature_c, 1);
+  $("process-rsc-steam").textContent = fmt(r.heat_recovery?.steam_rsc_tph);
+  const delta = isRsc && finite(chamber?.temperature_c) && finite(rsc?.temperature_c) ? chamber.temperature_c - rsc.temperature_c : null;
+  $("temperature-drop").textContent = finite(delta) ? `废锅温降 ${fmt(delta, 1)} ℃` : "";
+  document.querySelector("#tab-syngas .section-heading h2").textContent = isRsc ? "两处出口，同一工况" : "气化炉出口合成气";
+  document.querySelector("#tab-syngas .section-heading p").textContent = isRsc ? "并列核对组成、摩尔流量与灰流量" : "核对出口组成、摩尔流量与灰流量";
 }
 function activateTab(id) {
   state.active = id;
@@ -570,20 +568,20 @@ const PLOT_CONFIG = {
 function layout(yTitle, xTitle = "格子号") {
   return {
     font: {
-      family: "Segoe UI, Microsoft YaHei, sans-serif",
+      family: "Bahnschrift, Microsoft YaHei UI, Microsoft YaHei, sans-serif",
       size: 12,
-      color: "#647383",
+      color: "#60718a",
     },
     paper_bgcolor: "#ffffff",
     plot_bgcolor: "#ffffff",
-    margin: { l: 62, r: 28, t: 46, b: 54 },
+    margin: { l: 56, r: 22, t: 38, b: 48 },
     xaxis: {
       title: { text: xTitle, font: { size: 12 } },
       showgrid: false,
       showline: true,
-      linecolor: "#dce5eb",
+      linecolor: "#d6e0ea",
       ticks: "outside",
-      tickcolor: "#dce5eb",
+      tickcolor: "#d6e0ea",
       ticklen: 4,
       nticks: 7,
       zeroline: false,
@@ -591,7 +589,7 @@ function layout(yTitle, xTitle = "格子号") {
     },
     yaxis: {
       title: { text: yTitle, font: { size: 12 } },
-      gridcolor: "#edf1f4",
+      gridcolor: "#e8edf4",
       nticks: 5,
       zeroline: false,
       automargin: true,
@@ -604,7 +602,7 @@ function layout(yTitle, xTitle = "格子号") {
       traceorder: "normal",
     },
     hovermode: "x unified",
-    hoverlabel: { bgcolor: "#172c3e", font: { color: "#fff", size: 12 } },
+    hoverlabel: { bgcolor: "#24334a", font: { color: "#fff", size: 12 } },
     showlegend: false,
   };
 }
@@ -628,6 +626,13 @@ function plotLine(id, rows, keys, yTitle, options = {}) {
   spec.showlegend = keys.length > 1;
   if (options.log) spec.yaxis.type = "log";
   if (options.zones && rows.length > 30) {
+    // 分段着色沿用原网格数值，交界点共用以保持曲线连续。
+    const hot = rows.filter((r) => r.I <= 30), cool = rows.filter((r) => r.I >= 30);
+    traces[0].x = hot.map((r) => r.I);
+    traces[0].y = hot.map((r) => r[keys[0]]);
+    traces[0].name = "燃烧室";
+    traces.push({ ...traces[0], x: cool.map((r) => r.I), y: cool.map((r) => r[keys[0]]),
+      name: "辐射废锅", line: { ...traces[0].line, color: "#5a8cbb" } });
     spec.shapes = [
       {
         type: "rect",
@@ -636,7 +641,7 @@ function plotLine(id, rows, keys, yTitle, options = {}) {
         y0: 0,
         y1: 1,
         yref: "paper",
-        fillcolor: "rgba(20,125,115,0.045)",
+        fillcolor: "rgba(90,140,187,0.06)",
         line: { width: 0 },
         layer: "below",
       },
@@ -647,7 +652,7 @@ function plotLine(id, rows, keys, yTitle, options = {}) {
         y0: 0,
         y1: 1,
         yref: "paper",
-        line: { color: "#83b7ae", width: 1.2, dash: "dot" },
+        line: { color: "#9db6cd", width: 1.2, dash: "dot" },
       },
     ];
     spec.annotations = [
@@ -655,11 +660,11 @@ function plotLine(id, rows, keys, yTitle, options = {}) {
         x: 30,
         y: 1,
         yref: "paper",
-        text: "燃烧室 / 辐射废锅",
+        text: "燃烧室出口",
         showarrow: false,
         xanchor: "right",
         yshift: 15,
-        font: { size: 11, color: "#147d73" },
+        font: { size: 11, color: "#204f9c" },
       },
     ];
     const exits = [rows.find((r) => r.I === 30), rows.at(-1)].filter(Boolean);
@@ -672,7 +677,7 @@ function plotLine(id, rows, keys, yTitle, options = {}) {
       hoverinfo: "skip",
       marker: {
         size: 8,
-        color: options.color || COLORS[0],
+        color: ["#c16b22", "#5a8cbb"],
         line: { color: "#fff", width: 2 },
       },
     });
@@ -680,16 +685,16 @@ function plotLine(id, rows, keys, yTitle, options = {}) {
       spec.annotations.push({
         x: r.I,
         y: r[keys[0]],
-        text: `${i === 0 ? "燃烧室" : "废锅"} ${fmt(r[keys[0]], 1)} °C`,
+        text: `${fmt(r[keys[0]], 1)} ℃`,
         showarrow: true,
         arrowhead: 0,
         arrowcolor: "#aebdc5",
         ax: i === 0 ? 0 : -52,
         ay: i === 0 ? -36 : -28,
         bgcolor: "#fff",
-        bordercolor: "#dce5eb",
+        bordercolor: "#d6e0ea",
         borderpad: 5,
-        font: { size: 11, color: "#172c3e" },
+        font: { size: 11, color: "#24334a" },
       }),
     );
   }
@@ -717,8 +722,8 @@ function plotBar(id, data, unit, horizontal = false, maximum = null) {
     horizontal ? "" : unit,
     horizontal ? `体积分数 (${unit})` : "组分",
   );
-  spec.margin = { l: 48, r: 48, t: 24, b: 48 };
-  spec.bargap = 0.4;
+  spec.margin = { l: 35, r: 50, t: 12, b: 38 };
+  spec.bargap = 0.48;
   spec.hovermode = "closest";
   if (horizontal) {
     spec.yaxis.autorange = "reversed";
@@ -833,10 +838,10 @@ function renderTab(id) {
     heat = r.heat_recovery || {};
   if (id === "tab-overview") {
     plotLine("plot-overview-temp", internal, ["T(C)"], "温度 (°C)", {
-      color: "#e68136",
+      color: "#c16b22",
       zones: Object.keys(heat).length > 0,
     });
-    plotBar("plot-overview-gas", r.syngas_composition || {}, "%", true);
+    plotBar("plot-overview-gas", r.outlet_sections?.at(-1)?.dry_composition || r.syngas_composition || {}, "%", true);
   }
   if (id === "tab-history") {
     plotLine(
@@ -849,7 +854,7 @@ function renderTab(id) {
     plotLine("plot-history-t", hist, ["SUMT"], "温度修正量 (K)", {
       x: "Iter",
       log: true,
-      color: "#e68136",
+      color: "#c16b22",
     });
     renderTable(
       "history-table",
@@ -866,11 +871,11 @@ function renderTab(id) {
   if (id === "tab-syngas") renderOutlets(r.outlet_sections || []);
   if (id === "tab-profile") {
     plotLine("plot-temp", internal, ["T(C)"], "温度 (°C)", {
-      color: "#e68136",
+      color: "#c16b22",
       zones: Object.keys(heat).length > 0,
     });
-    plotLine("plot-x", internal, ["X(%)"], "碳转化率 (%)");
-    plotLine("plot-we", internal, ["WE(kg/s)"], "质量流量 (kg/s)");
+    plotLine("plot-x", internal, ["X(%)"], "碳转化指标 (%)");
+    plotLine("plot-we", internal, ["WE(kg/s)"], "总固体流 (kg/s)");
     plotLine("plot-u0", internal, ["U0(m/s)"], "气速 (m/s)");
     renderTable(
       "internal-table",
