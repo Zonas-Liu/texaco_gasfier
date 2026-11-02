@@ -112,7 +112,13 @@ def _run(output_file, data_path):
     
     # 调用EINGAB进行初始化 (对应Fortran: CALL EINGAB)
     # 传入output_file以便将运行条件写入GASTEST.DAT
-    eingab(data_path=data_path, output_file=output_file)
+    import io
+    initial_output = io.StringIO()
+    eingab(data_path=data_path, output_file=initial_output)
+    if common.FEED_MODE == 1:
+        from functions.feed_design import run_feed_design
+        return run_feed_design(output_file, data_path, _iterate)
+    output_file.write(initial_output.getvalue())
     
     if common.RSC_MODE == 1:
         from functions.rsc_design import run_target_design

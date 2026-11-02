@@ -17,7 +17,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 from common.common_data import common
 
 
-def eingab(data_path='data/Datain0.dat', output_file=None):
+def eingab(data_path='data/Datain0.dat', output_file=None, overrides=None):
     """
     输入数据和初始化子程序
     对应Fortran的EINGAB子程序
@@ -67,7 +67,7 @@ def eingab(data_path='data/Datain0.dat', output_file=None):
         return values
     
     # 在写入 COMMON 之前检查行数、列数和数值，禁止静默截断控制整数。
-    counts = (1, 5, 2, 4, 4, 2, 1, 2, 7, 3, 1, 3, 5, 2, 4)
+    counts = (1, 5, 2, 4, 4, 2, 1, 2, 7, 3, 1, 3, 5, 2, 4, 3, 4)
     if len(lines) < 11:
         raise ValueError("Datain0.dat 至少需要 11 行")
     for index, count in enumerate(counts[:len(lines)]):
@@ -78,7 +78,7 @@ def eingab(data_path='data/Datain0.dat', output_file=None):
             raise ValueError(f"Datain0.dat 第 {index + 1} 行应有 {count} 个参数")
         if not all(np.isfinite(values)):
             raise ValueError(f"Datain0.dat 第 {index + 1} 行含非有限数")
-        integer_columns = {0: (0,), 1: (0,), 11: (0,), 12: (4,), 14: (0,)}
+        integer_columns = {0: (0,), 1: (0,), 11: (0,), 12: (4,), 14: (0,), 15: (0,)}
         for col in integer_columns.get(index, ()):
             if values[col] != int(values[col]):
                 raise ValueError(f"Datain0.dat 第 {index + 1} 行控制参数必须为整数")
@@ -181,12 +181,32 @@ def eingab(data_path='data/Datain0.dat', output_file=None):
             common.RSC_MODE = int(values[0])
             common.T_RSC_OUT_C, common.H_RSC_MIN, common.H_RSC_MAX = values[1:]
     
+    # Line 16–17：燃烧室目标工况及有界搜索范围；缺失时保持原正算流程。
+    if len(lines) > 15:
+        values = parse_line(lines[15])
+        if values:
+            common.FEED_MODE = int(values[0])
+            common.T_CHAMBER_C, common.EFFECTIVE_GAS_NMH = values[1:]
+    if len(lines) > 16:
+        values = parse_line(lines[16])
+        if values:
+            common.FOXY_MIN, common.FOXY_MAX, common.SLURRY_MIN, common.SLURRY_MAX = values
+    # 每个反算候选先覆盖原始进料，再完整重建进料源项、焓与初值。
+    for name, value in (overrides or {}).items():
+        if name not in ('FOXY', 'BSLURRY', 'KTRL'):
+            raise ValueError(f'不支持初始化覆盖参数 {name}')
+        setattr(common, name, value)
+
     from common.input_validation import validate_params
     inputs = {name: value for name, value in vars(common).items()
               if type(value) in (int, float)}
     inputs["PFEED_O2"] = common.PFEED_OX
     inputs["TFEED_O2"] = common.TFEED_OX
     validate_params(inputs)
+
+    # 反算先正常初始化；外层可复用本次已收敛解，不读取目录中的历史重启状态。
+    if common.FEED_MODE == 1:
+        common.KTRL = 1
 
     # 设置基本控制参数
     common.KCHECK = 0  # 与Fortran一致 (Wg2.for line 17)

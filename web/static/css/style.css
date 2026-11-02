@@ -267,7 +267,7 @@ summary span {
   border: 0;
 }
 .form-group.select-field {
-  grid-template-columns: minmax(0, 1fr) 122px;
+  grid-template-columns: minmax(0, 1fr) 160px;
 }
 .field-label label {
   font-size: 12px;
@@ -748,6 +748,7 @@ th:first-child {
 }
 .outlet-table table {
   font-size: 12px;
+  min-width: 490px;
 }
 .outlet-table td,
 .outlet-table th {
@@ -773,6 +774,12 @@ th:first-child {
   border-top: 1px solid var(--border);
   padding-top: 22px;
 }
+.feed-design-panel { margin-top: 20px; }
+.mode-inactive { display: none !important; }
+.feed-design-panel .metric-value small { display: block; margin: 5px 0 0; font-size: 11px; }
+.outlet-solids { display: grid; grid-template-columns: 1fr auto; gap: 10px; border-top: 1px solid var(--border); padding-top: 14px; margin-top: 14px; font-size: 12px; }
+.outlet-solids > span, .outlet-solids small { color: var(--muted); font-weight: 400; }
+.outlet-solids strong { text-align: right; font-variant-numeric: tabular-nums; }
 .design-heading {
   display: flex;
   align-items: center;
@@ -819,10 +826,12 @@ th:first-child {
 .design-history .table-wrap {
   margin-top: 12px;
 }
-@media (max-width: 1100px) {
+@media (max-width: 1450px) {
   .outlet-comparison {
     grid-template-columns: minmax(0, 1fr);
   }
+}
+@media (max-width: 1100px) {
   .design-metrics {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 18px 0;

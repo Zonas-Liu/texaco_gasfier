@@ -50,11 +50,13 @@ TEXACO（德士古）水煤浆气化炉 Fortran 程序的 Python 移植版（1D 
   - R = KRELAX · 驱动力 · FEM[i]，作为 DMAT 组分源项（能量效应经 HENTH 自动计入）
 - **蒸汽物性**：4–10 MPa 范围内简化关联式（Tsat、h″、汽化潜热），精度需以权威物性库独立验证，当前无全范围误差保证
 
-### 新增输入参数（Datain0.dat 第 12-15 行，可选）
+### 新增输入参数（Datain0.dat 第 12-17 行，可选）
 - 行12: KMODEL, P_DRUM(Pa), T_FW(K)
 - 行13: TW_WALL(K), TW_RSC(K), D_RSC(m), H_RSC(m), N_RSC
 - 行14: KRELAX_WGS, KRELAX_METH
 - 行15: RSC_MODE, T_RSC_OUT_C(°C), H_RSC_MIN(m), H_RSC_MAX(m)；缺失为固定高度模式。
+- 行16: FEED_MODE, T_CHAMBER_C(℃), EFFECTIVE_GAS_NMH(Nm³/h)；缺失为给定进料模式。
+- 行17: FOXY_MIN, FOXY_MAX, SLURRY_MIN(kg/s), SLURRY_MAX(kg/s)。
 
 ### 典型参数（晋华炉3.0，已按典型工况调定）
 - P_DRUM=6.5 MPa（Tsat≈281℃），T_FW=150℃
@@ -108,3 +110,13 @@ TEXACO（德士古）水煤浆气化炉 Fortran 程序的 Python 移植版（1D 
 - GASTEST 追加 `RSC_DESIGN_JSON` 保存同次设计结果与轨迹。双出口流量从已有 KOLERG 对照表解析；不从当前输入反推历史结果。
 - Web 可编辑第 12–15 行，未变动可选行原样保留。Streamlit 仍只提供前 11 行编辑。
 - 方法、验证、模型适用限制见 `docs/RSC_TARGET_DESIGN.md`；新测试见 `numeric_test/test_rsc_design.py`。
+
+## 燃烧室双目标反算及界面单位（2026-11-02）
+- `FEED_MODE=1` 以燃烧室出口温度和 CO+H2 标方流量（Nm³/h，22.4 Nm³/kmol）为双目标，求 FOXY 与 BSLURRY；煤浆浓度、氧气纯度及其余参数不变。
+- `src/functions/feed_design.py` 使用有界阻尼牛顿、有限差分雅可比及回溯。仅接受内层收敛、温差≤0.5℃、气量差≤max(1,0.001×目标) Nm³/h；最多40次试算，失败恢复最佳候选最多再算1次。
+- `eingab(overrides=...)` 只接受 FOXY/BSLURRY/KTRL 覆盖，必须在派生量和源项初始化前应用。反算忽略历史 START，先正常初始化，再将本次已收敛状态按负荷缩放作为候选初值，仍完整重算源项并验证收敛。
+- 可与 RSC_MODE=1 联用：先满足燃烧室双目标，再求废锅高度/产汽并复核最终燃烧室双目标。联合模式通过 `run_target_design(finalize=False)` 延迟最终状态与重启写入，全部通过才写 START。
+- GASTEST 追加 `FEED_DESIGN_JSON` 记录目标、解、偏差、搜索范围、试算轨迹及 overall_success。输出条件必须来自最终候选，不能保留原始搜索初值作为结果条件。
+- `OUTLET_FLOWS_JSON` 按格号记录温度、FEMF×3600 的 kmol/h、WE×(1−X)×3600 的灰 kg/h。WE 为总固体流，X 为其中碳质量分数。不得用当前输入补算历史结果中的灰。
+- UI 压力为 MPaG、温度为℃，文件/API/核心原有压力仍为绝压 Pa、温度为K；目标温度字段自身保持℃。换算使用 `src/common/display_units.py`，参考大气压101325 Pa，Web 用 `info.display` 元数据双向转换。Streamlit 现有压力温度输入也同步转换。
+- Web 编辑前17行，反算解显示在结果中、不自动改写初值；Streamlit仍只编辑前11行并保留扩展。测试：`numeric_test/test_feed_design.py`；实际隔离验收：`numeric_test/check_feed_design.py`。

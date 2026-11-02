@@ -274,6 +274,22 @@ def kolerg(output_file=None, write_restart=True):
         outfile.write(f"      总产汽量:           {(stm_wall+stm_rsc)*3.6:>10.3f} t/h\n")
         outfile.write("=" * 60 + "\n")
     
+    # FEMF 为 kmol/s；灰流为总固体 WE 中扣除未反应碳的部分。
+    # 精确截面数据与文字结果写在同一文件中，避免界面混用后来修改的进料参数。
+    import json
+    gases = ('O2', 'CH4', 'CO', 'CO2', 'H2S', 'H2', 'N2', 'H2O')
+    points = {}
+    for cell in sorted({common.NZRC, common.NZRE}):
+        molar = {g: float(common.FEMF[j, cell] * 3600) for j, g in enumerate(gases, 1)}
+        ash = float(common.WE[cell] * (1 - common.X[cell]) * 3600)
+        points[str(cell)] = {'molar_flow_kmol_h': molar, 'ash_kg_h': ash,
+                             'temperature_c': float(common.T[cell] - 273.15)}
+        outfile.write(f'\n      第 {cell} 格出口摩尔流量 (kmol/h):\n')
+        for gas, flow in molar.items():
+            outfile.write(f'        {gas}: {flow:.6f}\n')
+        outfile.write(f'      第 {cell} 格出口灰质量流量: {ash:.6f} kg/h\n')
+    outfile.write('OUTLET_FLOWS_JSON: ' + json.dumps(points, allow_nan=False) + '\n')
+
     if write_restart:
         write_start(outfile)
 

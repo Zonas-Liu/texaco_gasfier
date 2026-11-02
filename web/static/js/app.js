@@ -108,6 +108,17 @@ function setBusy(busy) {
   syncDesignControls();
 }
 function syncDesignControls() {
+  const inverse = $("param-FEED_MODE")?.value === "1";
+  for (const [name, info] of Object.entries(state.info)) {
+    if (info.group === "燃烧室反算" && name !== "FEED_MODE") {
+      $(`param-${name}`).disabled = state.polling || !inverse;
+      $(`param-${name}`).closest(".form-group").classList.toggle("mode-inactive", !inverse);
+    }
+  }
+  for (const [name, normal, initial] of [["FOXY", "氧煤比", "氧煤比搜索初值"], ["BSLURRY", "水煤浆质量流量", "煤浆量搜索初值"]]) {
+    const label = document.querySelector(`label[for="param-${name}"]`);
+    if (label) label.textContent = inverse ? initial : normal;
+  }
   const mode = $("param-RSC_MODE"),
     model = $("param-KMODEL");
   if (!mode || !model) return;
@@ -132,6 +143,8 @@ function caption() {
       ? "当前正在计算 · 下方保留上次结果"
       : state.dirty && state.result
         ? "参数已修改 · 下方为上次计算结果"
+        : state.result && (state.result.feed_design?.overall_success === false || state.result.rsc_design?.success === false || state.result.convergence_history?.at(-1)?.KONVER !== 0)
+          ? "本次计算未通过全部收敛条件 · 结果仅供诊断"
         : "最近一次计算的输出";
 }
 function syncDrawer() {
@@ -241,6 +254,7 @@ async function loadParams() {
 function renderParams(data) {
   $("params-form").replaceChildren();
   const order = [
+    "燃烧室反算",
     "进料参数",
     "辐射废锅设计",
     "状态与几何",
@@ -250,7 +264,7 @@ function renderParams(data) {
   for (const group of order.filter((g) => data.grouped[g])) {
     const details = document.createElement("details");
     details.className = "param-group";
-    details.open = group === "进料参数";
+    details.open = ["进料参数", "燃烧室反算"].includes(group);
     const summary = document.createElement("summary");
     summary.innerHTML =
       '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="m6 3 5 5-5 5"/></svg>' +
@@ -258,6 +272,12 @@ function renderParams(data) {
     details.append(summary);
     const fields = document.createElement("div");
     fields.className = "group-fields";
+    if (group === "燃烧室反算") {
+      const hint = document.createElement("p");
+      hint.className = "parameter-hint";
+      hint.textContent = "给定燃烧室出口目标，反算氧煤比和煤浆量；其余工况保持不变。";
+      fields.append(hint);
+    }
     if (group === "辐射废锅设计") {
       const hint = document.createElement("p");
       hint.className = "parameter-hint";
@@ -269,7 +289,7 @@ function renderParams(data) {
       const row = document.createElement("div");
       row.className = "form-group";
       row.dataset.search = `${name} ${info.cn} ${info.desc}`.toLowerCase();
-      row.innerHTML = `<div class="field-label"><label for="param-${name}" title="${escapeHtml(info.desc)}">${escapeHtml(info.cn)}</label><small>${name}</small></div><div class="input-shell"><input id="param-${name}" name="${name}" type="number" step="${info.type === "int" ? "1" : "any"}" required aria-describedby="unit-${name}"><span class="field-unit" id="unit-${name}">${escapeHtml(info.unit || "无量纲")}</span></div>`;
+      row.innerHTML = `<div class="field-label"><label for="param-${name}" title="${escapeHtml(info.desc)}">${escapeHtml(info.cn)}</label><small>${name}</small></div><div class="input-shell"><input id="param-${name}" name="${name}" type="number" step="${info.type === "int" ? "1" : "any"}" required aria-describedby="unit-${name}"><span class="field-unit" id="unit-${name}">${escapeHtml(info.display?.unit || info.unit || "无量纲")}</span></div>`;
       if (info.options) {
         row.classList.add("select-field");
         const select = document.createElement("select");
@@ -279,7 +299,8 @@ function renderParams(data) {
           select.add(new Option(label, value));
         row.querySelector("input").replaceWith(select);
       }
-      row.querySelector("input,select").value = data.values[name];
+      const display = info.display || { scale: 1, offset: 0 };
+      row.querySelector("input,select").value = Number((data.values[name] * display.scale + display.offset).toPrecision(12));
       fields.append(row);
     }
     details.append(fields);
@@ -314,7 +335,8 @@ function collectParams() {
       input.reportValidity();
       throw new Error(`${state.info[name].cn}：请输入有效数值`);
     }
-    data[name] = Number(input.value);
+    const display = state.info[name].display || { scale: 1, offset: 0 };
+    data[name] = (Number(input.value) - display.offset) / display.scale;
   }
   return data;
 }
@@ -503,13 +525,17 @@ function showSummary(r) {
         : "目标温度未达到",
       r.rsc_design.success ? "success" : "error",
     );
+  if (r.feed_design)
+    status(r.feed_design.overall_success ? "双目标反算已完成" : "反算目标未全部达到",
+      r.feed_design.overall_success ? "success" : "error");
+  renderFeedDesign(r.feed_design);
   $("heat-panel").hidden = !isRsc;
   $("zone-legend").hidden = !isRsc;
   renderDesign(r.rsc_design);
   $("heat-metrics").innerHTML = isRsc
     ? metric("水冷壁", fmt(heat.steam_wall_tph), "t/h") +
       metric("辐射废锅", fmt(heat.steam_rsc_tph), "t/h") +
-      metric("汽包压力", fmt(heat.drum_pressure_mpa), "MPa")
+      metric("汽包压力", fmt(heat.drum_pressure_mpa - 0.101325, 3), "MPaG")
     : "";
 }
 function activateTab(id) {
@@ -729,6 +755,8 @@ function renderOutlets(sections) {
     <div class="chart-heading">干基组成 <span>体积分数 / %</span></div><div class="plot outlet-plot" id="plot-outlet-${i}"></div>
     <div class="table-wrap outlet-table" id="table-outlet-${i}"></div>
     <div class="outlet-footer"><span>湿基总流量（含 H₂O）</span><strong>${fmt(s.total_wet_nms, 3)} Nm³/s</strong><small>${fmt(finite(s.total_wet_nms) ? s.total_wet_nms * 3600 : null, 1)} Nm³/h</small></div>
+    <div class="outlet-solids"><span>灰质量流量</span><strong>${fmt(s.ash_kg_h, 2)} <small>kg/h</small></strong><span>有效气量 CO＋H₂</span><strong>${fmt(s.effective_gas_nmh, 1)} <small>Nm³/h</small></strong></div>
+    ${finite(s.ash_kg_h) ? "" : '<p class="section-note">历史输出未记录灰流量，重新计算后显示。</p>'}
     ${Object.keys(s.volume_flow).length ? "" : '<p class="section-note">此历史输出缺少该出口流量，请重新计算补全。</p>'}
   </section>`,
     )
@@ -745,15 +773,29 @@ function renderOutlets(sections) {
     const keys = ["CO", "H2", "CO2", "CH4", "N2", "H2S", "O2", "H2O"];
     renderTable(
       `table-outlet-${i}`,
-      ["组分", "干基 (%)", "湿基 (%)", "流量 (Nm³/s)"],
+      ["组分", "干基 (%)", "湿基 (%)", "流量 (Nm³/s)", "摩尔流量 (kmol/h)"],
       keys.map((g) => ({
         组分: GAS_LABELS[g],
         "干基 (%)": s.dry_composition[g],
         "湿基 (%)": s.wet_composition[g],
         "流量 (Nm³/s)": s.volume_flow[g],
+        "摩尔流量 (kmol/h)": s.molar_flow_kmol_h?.[g],
       })),
     );
   });
+}
+function renderFeedDesign(design) {
+  $("feed-design-result").hidden = !design;
+  if (!design) return;
+  $("feed-design-result").innerHTML =
+    `<div class="design-heading"><h3>燃烧室目标工况反算</h3><span class="design-state ${design.success ? "" : "failed"}">${design.success ? "双目标已达到" : "目标未达到"}</span></div>
+    <div class="design-metrics">${metric("反算氧煤比", fmt(design.oxygen_coal_ratio, 5), "kg O₂/kg BSWAF")}${metric("反算煤浆总量", fmt(design.slurry_kg_s, 4), "kg/s")}${metric("燃烧室出口温度", fmt(design.temperature_c, 2), "℃")}${metric("有效气量 CO＋H₂", fmt(design.effective_gas_nmh, 1), "Nm³/h")}</div>
+    <p class="design-note">目标 ${fmt(design.target_temperature_c, 1)} ℃ / ${fmt(design.target_effective_gas_nmh, 1)} Nm³/h · 温差 ${fmt(design.temperature_error_c, 3)} ℃ · 气量差 ${fmt(design.flow_error_nmh, 2)} Nm³/h</p>
+    <p class="design-note">${escapeHtml(design.message)} · 允许误差 ±${fmt(design.temperature_tolerance_c, 1)} ℃ / ±${fmt(design.flow_tolerance_nmh, 1)} Nm³/h。反算值见上方，输入框保留搜索初值。</p>
+    <details class="design-history"><summary>查看氧煤比与进料量求解过程（${design.evaluations} 次试算）</summary><div class="table-wrap" id="feed-design-table"></div></details>`;
+  renderTable("feed-design-table", ["轮次", "氧煤比", "煤浆量 (kg/s)", "出口温度 (℃)", "有效气量 (Nm³/h)", "内层状态"],
+    design.trials.map((t, i) => ({轮次: i + 1, 氧煤比: t.oxygen_coal_ratio, "煤浆量 (kg/s)": t.slurry_kg_s,
+      "出口温度 (℃)": t.temperature_c, "有效气量 (Nm³/h)": t.effective_gas_nmh, 内层状态: t.converged ? "收敛" : "未收敛"})));
 }
 function renderDesign(design) {
   $("design-result").hidden = !design;

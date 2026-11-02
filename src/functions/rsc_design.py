@@ -48,7 +48,7 @@ def search_height(evaluate, target, initial, lower, upper, tolerance=0.5, max_ev
             bracket = [(a, fa), (height, error)] if fa * error <= 0 else [(height, error), (b, fb)]
 
 
-def run_target_design(output_file, iterate):
+def run_target_design(output_file, iterate, finalize=True):
     """每个高度重算全炉；回收热量与蒸汽量始终取同一收敛状态。"""
     from common.common_data import common
     from common.progress import write_progress
@@ -86,9 +86,10 @@ def run_target_design(output_file, iterate):
     output_file.write(f"      目标温差: {result['temperature_error_c']:+.4f} C\n")
     output_file.write(f"      设计状态: {result['message']}\n")
     output_file.write("RSC_DESIGN_JSON: " + json.dumps(result, ensure_ascii=False, allow_nan=False) + "\n")
-    if result["success"]:
+    if finalize and result["success"]:
         write_start(output_file)
-    write_progress(common.ITERAT, common.ITMAX,
-                   status="completed" if result["success"] else "not_converged",
-                   message=result["message"])
+    if finalize:
+        write_progress(common.ITERAT, common.ITMAX,
+                       status="completed" if result["success"] else "not_converged",
+                       message=result["message"])
     return 0 if result["success"] else 2

@@ -32,6 +32,7 @@ if _SRC_PATH not in sys.path:
 from common.progress import read_progress, clear_progress
 from common.result_io import read_result_text, parse_outlet
 from common.input_validation import validate_params
+from common.display_units import display_spec, to_display, to_model
 
 # ---------------------------------------------------------------------------
 # 路径配置
@@ -646,14 +647,15 @@ def main():
         with st.sidebar.expander(f"📁 {group_name}", expanded=(group_name == "进料参数")):
             for name in names:
                 info = PARAM_INFO[name]
-                label = f"{info['cn']} ({name})"
-                val = params[name]
+                unit = display_spec(info['unit'])['unit']
+                label = f"{info['cn']} ({name})" + (f" · {unit}" if unit else '')
+                val = to_display(params[name], info['unit']) if info['unit'] in ('Pa', 'K') else params[name]
 
                 # 根据数值范围决定输入控件
                 if info["unit"] == "":
                     help_text = info["desc"]
                 else:
-                    help_text = f"{info['desc']}，单位：{info['unit']}"
+                    help_text = f"{info['desc']}，单位：{display_spec(info['unit'])['unit']}"
 
                 if isinstance(val, int):
                     params[name] = st.number_input(
@@ -666,7 +668,7 @@ def main():
                 else:
                     # 对 0-1 之间的参数使用更精细的步长
                     step = 0.001 if 0 <= val <= 1 else (0.01 if abs(val) < 100 else 1.0)
-                    format_str = "%.6f" if abs(val) < 1 else "%.2f"
+                    format_str = "%.6f" if info['unit'] == 'Pa' or abs(val) < 1 else "%.2f"
                     params[name] = st.number_input(
                         label,
                         value=float(val),
@@ -675,6 +677,9 @@ def main():
                         help=help_text,
                         key=f"input_{name}",
                     )
+
+                if info['unit'] in ('Pa', 'K'):
+                    params[name] = to_model(params[name], info['unit'])
 
     col1, col2 = st.sidebar.columns(2)
     is_running = st.session_state.get("sim_handle") is not None

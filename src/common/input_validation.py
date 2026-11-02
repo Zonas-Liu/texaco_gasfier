@@ -7,10 +7,10 @@ def validate_params(params):
     for name, value in params.items():
         if isinstance(value, bool) or not math.isfinite(float(value)):
             raise ValueError(f"{name} 必须是有限数值")
-    for name in ("KTRL", "ITMAX", "KMODEL", "N_RSC", "RSC_MODE"):
+    for name in ("KTRL", "ITMAX", "KMODEL", "N_RSC", "RSC_MODE", "FEED_MODE"):
         if name in params and float(params[name]) != int(params[name]):
             raise ValueError(f"{name} 必须是整数")
-    for name in ("KTRL", "KMODEL", "RSC_MODE"):
+    for name in ("KTRL", "KMODEL", "RSC_MODE", "FEED_MODE"):
         if name in params and params[name] not in (0, 1):
             raise ValueError(f"{name} 只能为 0 或 1")
     positive = ("ITMAX", "SKONFE", "SKONWE", "SKONX", "SKONT", "BSLURRY",
@@ -29,6 +29,15 @@ def validate_params(params):
             raise ValueError(f"{name} 不得为负")
     if params.get("ELAS", 0) + params.get("ELH2O", 0) >= 1:
         raise ValueError("灰分与水分之和必须小于 1")
+    if params.get("FEED_MODE") == 1:
+        if params['T_CHAMBER_C'] <= -273.15 or params['EFFECTIVE_GAS_NMH'] <= 0:
+            raise ValueError('燃烧室目标温度必须高于绝对零度，有效气量必须大于 0')
+        for low, high, initial in (('FOXY_MIN', 'FOXY_MAX', 'FOXY'),
+                                   ('SLURRY_MIN', 'SLURRY_MAX', 'BSLURRY')):
+            if not 0 < params[low] < params[high]:
+                raise ValueError(f'{low}/{high} 必须满足 0 < 下限 < 上限')
+            if not params[low] <= params[initial] <= params[high]:
+                raise ValueError(f'{initial} 搜索初值必须在给定范围内')
     if params.get("RSC_MODE") == 1:
         if params.get("KMODEL") != 1:
             raise ValueError("目标出口温度模式仅适用于晋华炉（KMODEL=1）")
@@ -43,7 +52,7 @@ def validate_params(params):
             if params[name] <= 0:
                 raise ValueError(f"{name} 必须大于 0")
         if not 4e6 <= params["P_DRUM"] <= 10e6:
-            raise ValueError("P_DRUM 超出简化蒸汽物性适用范围 4–10 MPa")
+            raise ValueError("P_DRUM 超出物性范围 3.898675–9.898675 MPaG（绝压 4–10 MPa）")
         from functions.steam_props import tsat_water
         if not 273.15 <= params["T_FW"] < tsat_water(params["P_DRUM"]):
-            raise ValueError("T_FW 必须为液态给水温度（273.15 K 至汽包饱和温度以下）")
+            raise ValueError("T_FW 必须为液态给水温度（0℃ 至汽包饱和温度以下）")

@@ -272,6 +272,13 @@ class CommonData:
         self.T_FW = 423.15       # 给水温度 [K]
         self.KRELAX_WGS = 2.0    # WGS平衡松弛系数
         self.KRELAX_METH = 0.02  # 甲烷化平衡松弛系数
+        self.FEED_MODE = 0       # 0=给定进料正算，1=燃烧室温度/有效气量反算
+        self.T_CHAMBER_C = 1228.0
+        self.EFFECTIVE_GAS_NMH = 49600.0  # CO+H2，沿用模型 22.4 Nm3/kmol
+        self.FOXY_MIN = 0.7
+        self.FOXY_MAX = 1.3
+        self.SLURRY_MIN = 5.0
+        self.SLURRY_MAX = 30.0
         self.RSC_MODE = 0        # 0=固定高度，1=给定出口温度反算高度与产汽
         self.T_RSC_OUT_C = 780.0 # 目标废锅出口温度 [°C]
         self.H_RSC_MIN = 1.0     # 高度搜索下限 [m]

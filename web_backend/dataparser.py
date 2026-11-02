@@ -18,6 +18,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))
 from common.result_io import read_result_text, parse_outlet
 from common.input_validation import validate_params
+from common.display_units import display_spec
 from typing import Any, Dict, List, Optional
 
 # ---------------------------------------------------------------------------
@@ -98,6 +99,8 @@ OPTIONAL_LINES = [
     ("TW_WALL", "TW_RSC", "D_RSC", "H_RSC", "N_RSC"),
     ("KRELAX_WGS", "KRELAX_METH"),
     ("RSC_MODE", "T_RSC_OUT_C", "H_RSC_MIN", "H_RSC_MAX"),
+    ("FEED_MODE", "T_CHAMBER_C", "EFFECTIVE_GAS_NMH"),
+    ("FOXY_MIN", "FOXY_MAX", "SLURRY_MIN", "SLURRY_MAX"),
 ]
 DEFAULT_PARAMS.update({"KMODEL": 0, "P_DRUM": 6.5e6, "T_FW": 423.15,
     "TW_WALL": 1773.0, "TW_RSC": 673.0, "D_RSC": 2.6, "H_RSC": 30.0,
@@ -124,6 +127,24 @@ for name in ("KMODEL", "RSC_MODE", "N_RSC"):
     PARAM_INFO[name]["type"] = "int"
 PARAM_INFO["KMODEL"]["options"] = {"0": "TEXACO", "1": "晋华炉 3.0"}
 PARAM_INFO["RSC_MODE"]["options"] = {"0": "固定高度", "1": "目标出口温度"}
+
+DEFAULT_PARAMS.update(FEED_MODE=0, T_CHAMBER_C=1228.0, EFFECTIVE_GAS_NMH=49600.0,
+                      FOXY_MIN=0.7, FOXY_MAX=1.3, SLURRY_MIN=5.0, SLURRY_MAX=30.0)
+for name, cn, unit, desc in [
+    ('FEED_MODE', '进料计算模式', '', '按燃烧室出口温度与 CO+H₂ 标方流量反算氧煤比和水煤浆总量'),
+    ('T_CHAMBER_C', '目标燃烧室出口温度', '℃', '允许温差 ±0.5 ℃'),
+    ('EFFECTIVE_GAS_NMH', '目标有效气量（CO＋H₂）', 'Nm³/h', '燃烧室出口；沿用模型 22.4 Nm³/kmol；允许误差为目标的 0.1%（最小 1 Nm³/h）'),
+    ('FOXY_MIN', '氧煤比搜索下限', 'kg O₂/kg BSWAF', '纯氧 / 无水无灰煤'),
+    ('FOXY_MAX', '氧煤比搜索上限', 'kg O₂/kg BSWAF', '纯氧 / 无水无灰煤'),
+    ('SLURRY_MIN', '煤浆量搜索下限', 'kg/s', '水煤浆总量，包含煤和水'),
+    ('SLURRY_MAX', '煤浆量搜索上限', 'kg/s', '保持煤浆浓度、氧气纯度及其余参数不变'),
+]:
+    PARAM_INFO[name] = {'cn': cn, 'unit': unit, 'desc': desc, 'group': '燃烧室反算'}
+PARAM_INFO['FEED_MODE'].update(type='int', options={'0': '给定进料正算', '1': '温度＋有效气量反算'})
+# API/文件仍使用模型单位，前端根据元数据进行可逆转换。
+for info in PARAM_INFO.values():
+    info['display'] = display_spec(info['unit'])
+PARAM_INFO['P_DRUM']['desc'] = '影响饱和蒸汽焓与产汽量；适用范围 3.898675–9.898675 MPaG'
 
 OUTPUT_LABELS = {
     "Iter": "迭代次数",
@@ -393,6 +414,9 @@ def parse_gastest(path: Path) -> Optional[Dict[str, Any]]:
     design_line = re.search(r"^RSC_DESIGN_JSON: (.+)$", text, re.MULTILINE)
     if design_line:
         result["rsc_design"] = json.loads(design_line.group(1))
+    feed_line = re.search(r'^FEED_DESIGN_JSON: (.+)$', text, re.MULTILINE)
+    if feed_line:
+        result['feed_design'] = json.loads(feed_line.group(1))
     result["operating_conditions"] = dict(list(result["operating_conditions"].items())[:10])
     return result
 
@@ -409,6 +433,8 @@ def parse_outlet_sections(text, result):
     locations = [("chamber", "燃烧室出口", 30), ("rsc", "辐射废锅出口", last)] if is_rsc else [
         ("chamber", "气化炉出口", last)]
     flow_pairs = {}
+    exact_line = re.search(r'^OUTLET_FLOWS_JSON: (.+)$', text, re.MULTILINE)
+    exact = json.loads(exact_line.group(1)) if exact_line else {}
     if "各组分流量对比" in text:
         block = text.split("各组分流量对比", 1)[1].split("总计", 1)[0]
         for line in block.splitlines():
@@ -429,13 +455,24 @@ def parse_outlet_sections(text, result):
             flow, _, _, _ = calculate_wet_syngas(result["volume_flow"], profiles[cell])
         if cell == last and result["syngas_composition"]:
             dry = dict(result["syngas_composition"])
+        point = exact.get(str(cell), {})
+        molar = point.get('molar_flow_kmol_h', {g: v * 3600 / 22.4 for g, v in flow.items()})
+        if point:
+            flow = {g: v * 22.4 / 3600 for g, v in molar.items()}
+            all_moles = sum(molar.values())
+            dry_moles = all_moles - molar['H2O']
+            wet = {g: v / all_moles * 100 if all_moles else None for g, v in molar.items()}
+            dry = {g: molar[g] / dry_moles * 100 if dry_moles else None for g in gases[:-1]}
         total_dry = sum(flow.get(g, 0) for g in gases[:-1]) if flow else None
         total_wet = sum(flow.values()) if flow else None
         sections.append({
             "key": key, "label": label, "cell": cell,
-            "temperature_c": internal.get(cell, {}).get("T(C)"),
+            "temperature_c": point.get('temperature_c', internal.get(cell, {}).get("T(C)")),
             "dry_composition": dry, "wet_composition": wet,
             "volume_flow": flow, "total_dry_nms": total_dry, "total_wet_nms": total_wet,
+            'molar_flow_kmol_h': molar, 'total_molar_kmol_h': sum(molar.values()) if molar else None,
+            'ash_kg_h': point.get('ash_kg_h'),
+            'effective_gas_nmh': (flow['CO'] + flow['H2']) * 3600 if flow else None,
             "h2_co_ratio": dry["H2"] / dry["CO"] if dry.get("CO") else None,
         })
     return sections
