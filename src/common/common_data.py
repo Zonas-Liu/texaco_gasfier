@@ -22,6 +22,12 @@ class CommonData:
             cls._instance._initialized = False
         return cls._instance
     
+    def reset(self):
+        """原位清空计算状态，保留所有模块持有的单例引用。"""
+        self.__dict__.clear()
+        self._initialized = False
+        self.__init__()
+
     def __init__(self):
         if self._initialized:
             return

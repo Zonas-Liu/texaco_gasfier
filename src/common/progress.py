@@ -10,6 +10,7 @@ TEXACO 模拟进度报告工具
 import json
 import os
 import threading
+import tempfile
 from pathlib import Path
 from typing import Dict, Optional
 
@@ -45,7 +46,7 @@ def write_progress(
         iteration: 当前迭代次数
         max_iterations: 最大迭代次数
         residuals: 残差字典，例如 {"SUMFE": 1e-3, ...}
-        status: 状态，可选 "running" / "completed" / "error"
+        status: 状态，可选 "running" / "completed" / "not_converged" / "error"
         message: 额外状态信息
     """
     data = {
@@ -57,11 +58,23 @@ def write_progress(
         "message": message,
     }
     with _lock:
+        temp_path = None
         try:
-            _progress_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
-        except Exception:
+            with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8",
+                                             dir=_progress_path.resolve().parent,
+                                             prefix=".progress-", delete=False) as f:
+                temp_path = Path(f.name)
+                json.dump(data, f, indent=2, allow_nan=False)
+            os.replace(temp_path, _progress_path)
+        except (OSError, ValueError):
             # 进度写入失败不应影响主计算流程
             pass
+        finally:
+            if temp_path is not None:
+                try:
+                    temp_path.unlink(missing_ok=True)
+                except OSError:
+                    pass
 
 
 def read_progress(path: Optional[os.PathLike] = None) -> Optional[Dict]:

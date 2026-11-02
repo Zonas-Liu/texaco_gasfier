@@ -22,11 +22,11 @@ TEXACO（德士古）水煤浆气化炉 Fortran 程序的 Python 移植版（1D 
 - `numeric_test/`：Python vs Fortran 数值对比验证
 
 ## 关键设计约束
-- **ENTHP 焓值含标准生成焓**（如 CO: HMT=-110594.12 J/kmol），因此通过 DMAT 组分源项改变
+- **ENTHP 焓值含标准生成焓**（如 CO: HMT=-110594.12 kJ/kmol，ENTHP 返回时乘 1000 转为 J/kmol），因此通过 DMAT 组分源项改变
   FEMF 时，反应热自动计入能量平衡，无需额外处理
 - DMAT 的雅可比通过数值微分（扰动 0.0001）自动获得：新增任何连续的源项/汇项都会被
   自动线性化，无需手写偏导
-- 挥发分/进料仅分布在 NZRA..NZFR / NZFED（第 1 格），RSC 段自动为零
+- 挥发分与煤浆进料分布在第 1 格；OX_PART<1 时第 N2FED=7 格可有二次氧气进料，RSC 段无进料
 - 输入文件 `data/Datain0.dat` 按行解析；新增参数追加在末尾新行，缺失时用默认值（向后兼容）
 - GUI（app.py / web_backend）按固定行数读写 Datain0.dat，新增行需注意保留
 
@@ -38,8 +38,8 @@ TEXACO（德士古）水煤浆气化炉 Fortran 程序的 Python 移植版（1D 
 2. 燃烧室下方接**辐射废锅（RSC）**：粗煤气进一步辐射降温至 750~800℃，产出大量饱和蒸汽
 
 ### 建模方案（已经用户确认）
-- **网格扩展**：燃烧室 1..30 格（不变）+ RSC 段 31..42 格（N_RSC=12，等分 H_RSC）。
-  数组尺寸 NZDIM=45。KMODEL=0 时退化为原 TEXACO（NZRE=30）
+- **网格扩展**：燃烧室 1..30 格（不变）+ RSC 段 31..60 格（默认 N_RSC=30，等分 H_RSC）。
+  数组尺寸 NZDIM=61（支持 1≤N_RSC≤30）。KMODEL=0 时退化为原 TEXACO（NZRE=30）
 - **水冷壁**：DMAT 能量行热汇 QKW[i]=WDKR(T,TW_i)·AR·DELZ·(T−TW_i)，
   燃烧室段 TW_i=TW_WALL（渣层表面有效温度），RSC 段 TW_i=TW_RSC。
   回收热量 → 蒸汽产量 = Q/(h″(P_DRUM) − h_fw(T_FW))
@@ -48,7 +48,7 @@ TEXACO（德士古）水煤浆气化炉 Fortran 程序的 Python 移植版（1D 
   - 水煤气变换 WGS：CO+H2O↔CO2+H2，K_WGS(T)=exp(4577.8/T − 4.33)
   - 甲烷化：CO+3H2↔CH4+H2O，K_METH(T)=exp(24766/T − 25.82)（298K 标准态范特霍夫近似）
   - R = KRELAX · 驱动力 · FEM[i]，作为 DMAT 组分源项（能量效应经 HENTH 自动计入）
-- **蒸汽物性**：4–10 MPa 范围内简化关联式（Tsat、h″、汽化潜热），误差 <2%
+- **蒸汽物性**：4–10 MPa 范围内简化关联式（Tsat、h″、汽化潜热），精度需以权威物性库独立验证，当前无全范围误差保证
 
 ### 新增输入参数（Datain0.dat 第 12-14 行，可选）
 - 行12: KMODEL, P_DRUM(Pa), T_FW(K)
@@ -80,3 +80,14 @@ TEXACO（德士古）水煤浆气化炉 Fortran 程序的 Python 移植版（1D 
 - 中文注释、docstring 标注对应 Fortran 来源
 - 与 Fortran 对齐处保留 1-based 索引注释
 - 修改公共结构/流程时同步更新本文件
+
+## 2026-11-02 审查后的流程约定
+- `eingab()` 原位调用 `common.reset()`，每次运行从默认状态开始；缺失可选行不得继承前次模型。
+- 输入必须为有限数，整数控制量不得截断；N_RSC 为 1–30，P_DRUM 为 4–10 MPa。
+- `main()` 返回 0 表示收敛，2 表示迭代上限未收敛；异常上报 error 后抛出。
+- SUMFE/SUMWE/SUMX/SUMT 实际为 BLKTRD 求解后的牛顿修正量绝对值和，不是原始守恒方程残差。
+- GASTEST.DAT 固定 UTF-8；两套界面兼容读取历史 GBK 输出。输出前刷新派生流量、速度、焓及壁面热负荷。
+- START.DAT 写入工作目录；KTRL=0 优先读取工作目录文件，缺失时读取输入文件同目录文件。
+  重启文件必须匹配网格（每格 11 个值）；缺失或损坏会报错，改为 KTRL=1 可重新初始化。
+- Flask 参数修改和启动共用锁，仅支持一个服务进程；不要同时从两个界面/CLI 运行同一目录。
+- 审查说明与验证命令见 `docs/CODE_REVIEW_2026-11-02.md`；新回归测试使用标准库 unittest。

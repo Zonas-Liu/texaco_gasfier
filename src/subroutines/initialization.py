@@ -34,6 +34,9 @@ def eingab(data_path='data/Datain0.dat', output_file=None):
         - 初始化未知数
         - 输出运行条件到文件(与Fortran一致)
     """
+    # 原位重置 COMMON 单例，避免打包 GUI 连续运行继承上次状态。
+    common.reset()
+
     # 设置分子量 (DATA语句) [kg/kmol]
     # XMOL: O2, CH4, CO, CO2, H2S, H2, N2, H2O, C, TAR
     common.XMOL = np.array([32., 16., 28., 44., 34., 2., 28., 18., 12., 60.])
@@ -63,6 +66,23 @@ def eingab(data_path='data/Datain0.dat', output_file=None):
                 values.append(float(v))
         return values
     
+    # 在写入 COMMON 之前检查行数、列数和数值，禁止静默截断控制整数。
+    counts = (1, 5, 2, 4, 4, 2, 1, 2, 7, 3, 1, 3, 5, 2)
+    if len(lines) < 11:
+        raise ValueError("Datain0.dat 至少需要 11 行")
+    for index, count in enumerate(counts[:len(lines)]):
+        values = parse_line(lines[index])
+        if index >= 11 and not values:
+            continue  # 可选行留空时使用默认值，保持行号
+        if len(values) != count and not (index == 8 and len(values) == 6):
+            raise ValueError(f"Datain0.dat 第 {index + 1} 行应有 {count} 个参数")
+        if not all(np.isfinite(values)):
+            raise ValueError(f"Datain0.dat 第 {index + 1} 行含非有限数")
+        integer_columns = {0: (0,), 1: (0,), 11: (0,), 12: (4,)}
+        for col in integer_columns.get(index, ()):
+            if values[col] != int(values[col]):
+                raise ValueError(f"Datain0.dat 第 {index + 1} 行控制参数必须为整数")
+
     # 读取各参数
     # Line 1: KTRL
     values = parse_line(lines[0])
@@ -155,6 +175,13 @@ def eingab(data_path='data/Datain0.dat', output_file=None):
             common.KRELAX_WGS = values[0]
             common.KRELAX_METH = values[1]
     
+    from common.input_validation import validate_params
+    inputs = {name: value for name, value in vars(common).items()
+              if type(value) in (int, float)}
+    inputs["PFEED_O2"] = common.PFEED_OX
+    inputs["TFEED_O2"] = common.TFEED_OX
+    validate_params(inputs)
+
     # 设置基本控制参数
     common.KCHECK = 0  # 与Fortran一致 (Wg2.for line 17)
     common.KTRLT = 1
@@ -291,7 +318,9 @@ def eingab(data_path='data/Datain0.dat', output_file=None):
     # 初始化未知数
     if common.KTRL == 0:
         # 从START.DAT读取初始值
-        start_path = os.path.join(project_root, 'data/START.DAT')
+        start_path = os.path.join(os.getcwd(), 'START.DAT')
+        if not os.path.exists(start_path):
+            start_path = os.path.join(os.path.dirname(full_data_path), 'START.DAT')
         _read_start_file(start_path)
     elif common.KCHECK == 1:
         # 检查模式初始化
@@ -376,60 +405,24 @@ def _read_start_file(filepath):
     READ(4,*)(X(I),I=NZEL1,NZEL2)
     READ(4,*)(WE(I),I=NZEL1,NZEL2)
     """
-    try:
-        # Read all values from file (flattened list)
-        all_values = []
-        with open(filepath, 'r') as f:
-            for line in f:
-                # Split line by whitespace and convert to float
-                values = [float(x) for x in line.strip().split()]
-                all_values.extend(values)
-        
-        val_idx = 0
-        
-        # 读取FEMF(1:4, :) - Fortran顺序: 外层I(格子),内层II(组分)
-        # 即: FEMF(1,1), FEMF(2,1), FEMF(3,1), FEMF(4,1), FEMF(1,2), FEMF(2,2)...
-        for i in range(common.NZEL1, common.NZEL2 + 1):
-            for ii in range(1, 5):
-                if val_idx < len(all_values):
-                    common.FEMF[ii, i] = all_values[val_idx]
-                    val_idx += 1
-        
-        # 读取FEMF(5:8, :) 
-        for i in range(common.NZEL1, common.NZEL2 + 1):
-            for ii in range(5, 9):
-                if val_idx < len(all_values):
-                    common.FEMF[ii, i] = all_values[val_idx]
-                    val_idx += 1
-        
-        # 读取T(温度)
-        for i in range(common.NZEL1, common.NZEL2 + 1):
-            if val_idx < len(all_values):
-                common.T[i] = all_values[val_idx]
-                val_idx += 1
-        
-        # 读取X(碳转化率)
-        for i in range(common.NZEL1, common.NZEL2 + 1):
-            if val_idx < len(all_values):
-                common.X[i] = all_values[val_idx]
-                val_idx += 1
-        
-        # 读取WE(碳质量流量)
-        for i in range(common.NZEL1, common.NZEL2 + 1):
-            if val_idx < len(all_values):
-                common.WE[i] = all_values[val_idx]
-                val_idx += 1
-        
-        print(f'Read {val_idx} values from START.DAT')
-                
-    except FileNotFoundError:
-        print(f'Warning: START.DAT not found at {filepath}')
-        print('Using default initialization instead.')
-        common.KTRL = 1  # 切换到默认初始化
-    except Exception as e:
-        print(f'Error reading START.DAT: {e}')
-        print('Using default initialization instead.')
-        common.KTRL = 1  # 切换到默认初始化
+    with open(filepath, 'r', encoding='utf-8') as f:
+        values = [float(x.replace('D', 'E').replace('d', 'e'))
+                  for x in f.read().split()]
+    n = common.NZEL2 - common.NZEL1 + 1
+    if len(values) != 11 * n or not np.all(np.isfinite(values)):
+        raise ValueError(f"START.DAT 需要 {11 * n} 个有限数值，实际 {len(values)} 个")
+    # 先完整验证，再写入 COMMON，防止半读入的状态进入求解器。
+    data = np.asarray(values)
+    gas1 = data[:4*n].reshape(n, 4)
+    gas2 = data[4*n:8*n].reshape(n, 4)
+    temp, fraction, solid = data[8*n:].reshape(3, n)
+    if (np.any(gas1 < 0) or np.any(gas2 < 0) or np.any(temp <= 0)
+            or np.any(fraction < 0) or np.any(fraction > 1) or np.any(solid <= 0)):
+        raise ValueError("START.DAT 含无效温度、流量或固体碳质量分数")
+    cells = slice(common.NZEL1, common.NZEL2 + 1)
+    common.FEMF[1:5, cells] = gas1.T
+    common.FEMF[5:9, cells] = gas2.T
+    common.T[cells], common.X[cells], common.WE[cells] = temp, fraction, solid
 
 
 def geometry():

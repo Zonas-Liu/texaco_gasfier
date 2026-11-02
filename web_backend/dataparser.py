@@ -12,7 +12,11 @@ TEXACO 纯 HTML 方案 - 数据解析与输出处理
 """
 
 import re
+import sys
 from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))
+from common.result_io import read_result_text, parse_outlet
+from common.input_validation import validate_params
 from typing import Any, Dict, List, Optional
 
 # ---------------------------------------------------------------------------
@@ -27,9 +31,9 @@ PARAM_INFO: Dict[str, Dict[str, Any]] = {
     "SKONX": {"cn": "碳转化率收敛阈值", "unit": "", "desc": "SUMX 收敛判据", "group": "控制与收敛"},
     "SKONT": {"cn": "温度收敛阈值", "unit": "", "desc": "SUMT 收敛判据", "group": "控制与收敛"},
     # 进料参数
-    "BSLURRY": {"cn": "水煤浆浓度", "unit": "%", "desc": "煤浆中煤的质量百分比", "group": "进料参数"},
+    "BSLURRY": {"cn": "水煤浆质量流量", "unit": "kg/s", "desc": "水煤浆总质量流量（含煤和水）", "group": "进料参数"},
     "RATIO_COAL": {"cn": "煤浆煤质量分数", "unit": "", "desc": "干煤占水煤浆总质量的比例", "group": "进料参数"},
-    "FOXY": {"cn": "氧煤比", "unit": "kg O₂/kg BSWAF", "desc": "氧气流量与煤浆流量之比", "group": "进料参数"},
+    "FOXY": {"cn": "氧煤比", "unit": "kg O₂/kg BSWAF", "desc": "纯氧质量流量与无水无灰煤质量流量之比", "group": "进料参数"},
     "PURE_O2": {"cn": "氧气纯度", "unit": "", "desc": "工业氧气中 O₂ 的摩尔分数", "group": "进料参数"},
     "OX_PART": {"cn": "一次氧气比例", "unit": "", "desc": "一次氧气占总氧气比例", "group": "进料参数"},
     "RATIO_CO2": {"cn": "CO₂ 比例", "unit": "", "desc": "进料 CO₂ 比例", "group": "进料参数"},
@@ -176,6 +180,7 @@ def parse_datain0(path: Path) -> Dict[str, Any]:
 
 def write_datain0(path: Path, params: Dict[str, Any]) -> None:
     """将参数字典写回 Datain0.dat。"""
+    validate_params(params)
     lines = []
     for line_tuple in PARAM_LINES:
         values = [params[name] for name in line_tuple]
@@ -198,7 +203,7 @@ def write_datain0(path: Path, params: Dict[str, Any]) -> None:
     # 先读取额外参数行（如晋华炉3.0新增的第12-14行），避免GUI保存时丢失
     extra_lines = []
     if path.exists():
-        existing = [l for l in path.read_text(encoding="utf-8", errors="ignore").splitlines() if l.strip()]
+        existing = path.read_text(encoding="utf-8").splitlines()
         extra_lines = existing[len(comments):]
     with open(path, "w", encoding="utf-8") as f:
         for line, cmt in zip(lines, comments):
@@ -215,7 +220,7 @@ def parse_gastest(path: Path) -> Optional[Dict[str, Any]]:
     if not path.exists():
         return None
 
-    text = path.read_text(encoding="gbk", errors="ignore")
+    text = read_result_text(path)
     lines = text.splitlines()
 
     result = {
@@ -321,18 +326,7 @@ def parse_gastest(path: Path) -> Optional[Dict[str, Any]]:
                 elif not result["volume_flow"]:
                     result["volume_flow"] = dict(zip(keys, vals))
 
-    # 5. 出口温度和碳转化率
-    for line in lines[-5:]:
-        m = re.search(r"(\d+\.\d+)\s*C", line)
-        if m:
-            val = _parse_float(m.group(1))
-            if val > 100:
-                result["outlet"]["Temperature(C)"] = val
-        nums = re.findall(r"\d+\.\d+", line)
-        for n in nums:
-            val = _parse_float(n)
-            if 0 <= val <= 1.5:
-                result["outlet"]["CarbonConversion"] = val
+    result["outlet"] = parse_outlet(text)
 
     result["operating_conditions"] = dict(list(result["operating_conditions"].items())[:10])
     return result

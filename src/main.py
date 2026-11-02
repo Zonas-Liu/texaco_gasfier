@@ -6,7 +6,8 @@ TEXACO气化炉CFD模拟 - 主程序 (残差输出版)
 """
 
 from common.common_data import common
-from common.progress import write_progress, clear_progress
+from common.progress import write_progress
+import sys
 from subroutines.initialization import eingab
 from subroutines.gasifier_main import gasifier
 from functions.math_utils import newtra
@@ -25,7 +26,7 @@ def calculate_residuals():
     对应Fortran NEWTRA中的残差计算
     
     注意: DMAT使用1-based索引（与Fortran兼容）
-    DMAT[1:8,:] 对应气体组分方程 (O2, CH4, CO, CO2, H2S, H2, N2, H2O)
+    DMAT[1:9,:] 对应气体组分方程 (O2, CH4, CO, CO2, H2S, H2, N2, H2O)
     """
     # SUMFE: 气体组分残差 (J=1 to NVE)
     # 注意: Python中数组索引1..30对应Fortran的1..30(NZEL1=1,NZEL2=30)
@@ -62,11 +63,11 @@ def print_matrices_iter0():
         f.write('Python Matrix Output - First Iteration (Iter=1)\n')
         f.write('================================\n')
         
-        # 只打印前5个单元 (Python 0-based: 0-4 = Fortran 1-based: 1-5)
-        for ii in range(0, 5):
+        # 1-based：索引 0 闲置，只打印有效单元 1..5
+        for ii in range(1, min(5, common.NZRE) + 1):
             f.write('\n')
             f.write('================================\n')
-            f.write(f'Cell {ii+1}\n')
+            f.write(f'Cell {ii}\n')
             f.write('================================\n')
             
             # DMAT
@@ -99,19 +100,19 @@ def print_matrices_iter0():
                 f.write(row_str + '\n')
 
 
-def main():
+def _run(output_file, data_path):
     """
     TEXACO气化炉CFD模拟主程序 (残差输出版)
     """
     # 打开输出文件 (对应Fortran: OPEN (UNIT=1,FILE='GASTEST.DAT',STATUS='UNKNOWN'))
-    output_file = open('GASTEST.DAT', 'w')
+    # 文件生命周期由 main() 管理
     
     # 初始化迭代计数器
     common.ITERAT = 0
     
     # 调用EINGAB进行初始化 (对应Fortran: CALL EINGAB)
     # 传入output_file以便将运行条件写入GASTEST.DAT
-    eingab(output_file=output_file)
+    eingab(data_path=data_path, output_file=output_file)
     
     # 初始化进度文件
     write_progress(0, common.ITMAX, status="running", message="初始化完成，开始迭代")
@@ -186,7 +187,7 @@ def main():
                 status="completed",
                 message=f"收敛完成，共 {common.ITERAT} 次迭代",
             )
-            break
+            return 0
         
         # 检查是否达到最大迭代次数
         if common.ITERAT == common.ITMAX:
@@ -201,14 +202,21 @@ def main():
                 common.ITERAT,
                 common.ITMAX,
                 residuals={"SUMFE": sumfe, "SUMWE": sumwe, "SUMX": sumx, "SUMT": sumt},
-                status="completed",
-                message="达到最大迭代次数",
+                status="not_converged",
+                message="达到最大迭代次数，未收敛",
             )
-            break
+            return 2
     
-    # 关闭输出文件
-    output_file.close()
+def main(data_path='data/Datain0.dat'):
+    """返回 0=收敛，2=达到迭代上限；异常记录进度并继续向调用者抛出。"""
+    write_progress(0, 0, status="running", message="正在初始化")
+    try:
+        with open('GASTEST.DAT', 'w', encoding='utf-8') as output_file:
+            return _run(output_file, data_path)
+    except Exception as exc:
+        write_progress(common.ITERAT, common.ITMAX, status="error", message=str(exc))
+        raise
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

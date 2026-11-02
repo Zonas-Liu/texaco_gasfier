@@ -38,10 +38,13 @@ def gausll(n, ns, a):
     n1 = n + 1
     nt = n + ns
     
+    if not np.all(np.isfinite(a)):
+        raise FloatingPointError("线性方程组含 NaN/Inf")
+
     # 标量情况
     if n == 1:
         if abs(a[0, 0]) < 1.0e-20:
-            a[0, 0] = 1.0e-20
+            raise np.linalg.LinAlgError("标量方程主元为零")
         scale = a[0, 0]
         for k in range(1, nt):
             a[0, k] = a[0, k] / scale
@@ -69,8 +72,7 @@ def gausll(n, ns, a):
         # 消元 - 改进的数值处理
         pivot = a[i1 - 1, i1 - 1]
         if abs(pivot) < 1.0e-20:
-            pivot = 1.0e-20
-            a[i1 - 1, i1 - 1] = pivot
+            raise np.linalg.LinAlgError("高斯消元遇到奇异主元")
         
         for j in range(i, n + 1):
             factor = a[j - 1, i1 - 1] / pivot
@@ -85,8 +87,7 @@ def gausll(n, ns, a):
         
         pivot = a[i - 1, i - 1]
         if abs(pivot) < 1.0e-20:
-            pivot = 1.0e-20
-            a[i - 1, i - 1] = pivot
+            raise np.linalg.LinAlgError("高斯回代遇到奇异主元")
         
         # 归一化当前行（包括左侧矩阵）
         for k in range(i - 1, nt):
@@ -279,7 +280,7 @@ def matdiv(nf, ng, matin1, nan1x, matin2, nan2x, ndi1, ndi2):
         if abs(m2_val) > 1e-20:
             matout[1, 1] = m1_val / m2_val
         else:
-            matout[1, 1] = m1_val / 1e-20
+            raise np.linalg.LinAlgError("标量方程主元为零")
         return 0, matout
     
     # 计算实际维度（取绝对值）
@@ -382,6 +383,9 @@ def kolon1(omega=1.0):
         omega: 松弛因子 (0 < omega <= 1)，默认1.0（无松弛）
                较小的omega可以增加稳定性但减慢收敛速度
     """
+    if not np.all(np.isfinite(common.DMAT[1:common.NVWS + 1, common.NZEL1:common.NZEL2 + 1])):
+        raise FloatingPointError("牛顿修正量含 NaN/Inf，不能判为收敛")
+
     # 重置收敛标志 (KONVER=0表示已收敛或需要检查，KONVER=1表示未收敛)
     common.KONVER = 0
     
@@ -527,6 +531,9 @@ def kolon1(omega=1.0):
             if common.T[i] > 3000.0:
                 common.T[i] = 3000.0
     
+    if np.any(common.T[common.NZEL1:common.NZEL2 + 1] <= 0):
+        raise FloatingPointError("牛顿更新产生非正绝对温度")
+
     # 输出收敛信息
     if common.ITERAT == 1:
         print("\n  KONVER       SUMFE         SUMWE         SUMX          SUMT      ITERAT")
@@ -659,6 +666,6 @@ def blktrd(nmat, nst):
     
     if is_err != 0:
         print(f"BLKTRD error! is_err={is_err}")
-        sys.exit(1)
+        raise np.linalg.LinAlgError(f"BLKTRD error: {is_err}")
     
     return 0

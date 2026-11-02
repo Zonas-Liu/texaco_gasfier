@@ -134,11 +134,8 @@ function collectParams() {
     Object.keys(paramInfo).forEach((name) => {
         const el = document.getElementById(`param-${name}`);
         if (!el) return;
-        if (paramInfo[name].type === "int") {
-            params[name] = parseInt(el.value, 10);
-        } else {
-            params[name] = parseFloat(el.value);
-        }
+        // 保留小数交给后端整数校验，避免将 1.5 静默截断为 1。
+        params[name] = el.value.trim() === "" ? null : Number(el.value);
     });
     return params;
 }

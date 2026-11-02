@@ -30,6 +30,8 @@ _SRC_PATH = str(Path(__file__).parent.resolve() / "src")
 if _SRC_PATH not in sys.path:
     sys.path.insert(0, _SRC_PATH)
 from common.progress import read_progress, clear_progress
+from common.result_io import read_result_text, parse_outlet
+from common.input_validation import validate_params
 
 # ---------------------------------------------------------------------------
 # 路径配置
@@ -50,9 +52,9 @@ PARAM_INFO = {
     "SKONX": {"cn": "碳转化率收敛阈值", "unit": "", "desc": "SUMX 收敛判据", "group": "控制与收敛"},
     "SKONT": {"cn": "温度收敛阈值", "unit": "", "desc": "SUMT 收敛判据", "group": "控制与收敛"},
     # 进料参数
-    "BSLURRY": {"cn": "水煤浆浓度", "unit": "%", "desc": "煤浆中煤的质量百分比", "group": "进料参数"},
+    "BSLURRY": {"cn": "水煤浆质量流量", "unit": "kg/s", "desc": "水煤浆总质量流量（含煤和水）", "group": "进料参数"},
     "RATIO_COAL": {"cn": "煤浆煤质量分数", "unit": "", "desc": "干煤占水煤浆总质量的比例", "group": "进料参数"},
-    "FOXY": {"cn": "氧煤比", "unit": "kg O₂/kg BSWAF", "desc": "氧气流量与煤浆流量之比", "group": "进料参数"},
+    "FOXY": {"cn": "氧煤比", "unit": "kg O₂/kg BSWAF", "desc": "纯氧质量流量与无水无灰煤质量流量之比", "group": "进料参数"},
     "PURE_O2": {"cn": "氧气纯度", "unit": "", "desc": "工业氧气中 O₂ 的摩尔分数", "group": "进料参数"},
     "OX_PART": {"cn": "一次氧气比例", "unit": "", "desc": "一次氧气占总氧气比例", "group": "进料参数"},
     "RATIO_CO2": {"cn": "CO₂ 比例", "unit": "", "desc": "进料 CO₂ 比例", "group": "进料参数"},
@@ -180,6 +182,7 @@ def parse_datain0(path):
 
 def write_datain0(path, params):
     """将参数字典写回 Datain0.dat。"""
+    validate_params(params)
     lines = []
     for line_tuple in PARAM_LINES:
         values = [params[name] for name in line_tuple]
@@ -202,7 +205,7 @@ def write_datain0(path, params):
     # 先读取额外参数行（如晋华炉3.0新增的第12-14行），避免GUI保存时丢失
     extra_lines = []
     if path.exists():
-        existing = [l for l in path.read_text(encoding="utf-8", errors="ignore").splitlines() if l.strip()]
+        existing = path.read_text(encoding="utf-8").splitlines()
         extra_lines = existing[len(comments):]
     with open(path, "w", encoding="utf-8") as f:
         for line, cmt in zip(lines, comments):
@@ -227,7 +230,7 @@ def parse_gastest(path):
     if not path.exists():
         return None
 
-    text = path.read_text(encoding="gbk", errors="ignore")
+    text = read_result_text(path)
     lines = text.splitlines()
 
     result = {
@@ -333,18 +336,7 @@ def parse_gastest(path):
                 elif not result["volume_flow"]:
                     result["volume_flow"] = dict(zip(keys, vals))
 
-    # 5. 出口温度和碳转化率
-    for line in lines[-5:]:
-        m = re.search(r"(\d+\.\d+)\s*C", line)
-        if m:
-            val = _parse_float(m.group(1))
-            if val > 100:
-                result["outlet"]["Temperature(C)"] = val
-        nums = re.findall(r"\d+\.\d+", line)
-        for n in nums:
-            val = _parse_float(n)
-            if 0 <= val <= 1.5:
-                result["outlet"]["CarbonConversion"] = val
+    result["outlet"] = parse_outlet(text)
 
     result["operating_conditions"] = dict(list(result["operating_conditions"].items())[:10])
     return result
@@ -436,8 +428,8 @@ def _run_simulation_direct():
     try:
         sys.stdout, sys.stderr = stdout_capture, stderr_capture
         from src.main import main as texaco_main
-        texaco_main()
-        return _MockProcess(0, stdout_capture.getvalue(), stderr_capture.getvalue())
+        returncode = texaco_main()
+        return _MockProcess(returncode, stdout_capture.getvalue(), stderr_capture.getvalue())
     except Exception as exc:
         stderr_capture.write(f"\n{exc.__class__.__name__}: {exc}\n")
         import traceback
@@ -685,14 +677,21 @@ def main():
                     )
 
     col1, col2 = st.sidebar.columns(2)
-    save_clicked = col1.button("💾 保存输入", use_container_width=True)
     is_running = st.session_state.get("sim_handle") is not None
+    save_clicked = col1.button("💾 保存输入", use_container_width=True, disabled=is_running)
     run_clicked = col2.button(
         "🚀 运行模拟",
         use_container_width=True,
         type="primary",
         disabled=is_running,
     )
+
+    if save_clicked or run_clicked:
+        try:
+            validate_params(params)
+        except (ValueError, TypeError) as exc:
+            st.sidebar.error(str(exc))
+            st.stop()
 
     if save_clicked:
         write_datain0(DATA_FILE, params)
@@ -977,7 +976,7 @@ def main():
     with tab4:
         if OUTPUT_FILE.exists():
             st.markdown("#### GASTEST.DAT 原始文本")
-            st.text(OUTPUT_FILE.read_text(encoding="gbk", errors="ignore"))
+            st.text(read_result_text(OUTPUT_FILE))
 
 
 if __name__ == "__main__":

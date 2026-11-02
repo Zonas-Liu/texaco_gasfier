@@ -5,8 +5,6 @@ TEXACO气化炉CFD模拟 - 质量流量计算
 对应Fortran中的XMASS子程序
 """
 import numpy as np
-import sys
-sys.path.append(r'E:\Texco\src')
 from common.common_data import common
 
 

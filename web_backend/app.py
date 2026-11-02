@@ -17,6 +17,7 @@ import subprocess
 import sys
 import threading
 import time
+from functools import wraps
 from pathlib import Path
 
 from flask import Flask, jsonify, request, send_from_directory
@@ -25,12 +26,15 @@ from flask import Flask, jsonify, request, send_from_directory
 # 项目路径
 # ---------------------------------------------------------------------------
 ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
 SRC_PATH = str(ROOT / "src")
 if SRC_PATH not in sys.path:
     sys.path.insert(0, SRC_PATH)
 
+from common.result_io import read_result_text
+from common.input_validation import validate_params
 from common.progress import clear_progress, read_progress  # noqa: E402
-from dataparser import (  # noqa: E402
+from web_backend.dataparser import (  # noqa: E402
     PARAM_INFO,
     PARAM_LINES,
     calculate_wet_syngas,
@@ -54,7 +58,7 @@ app = Flask(
 app.config["JSON_AS_ASCII"] = False
 
 # 模拟运行状态（单进程 Flask 开发服务器下共享）
-_sim_lock = threading.Lock()
+_sim_lock = threading.RLock()
 _sim_state = {
     "process": None,
     "stdout_path": None,
@@ -74,8 +78,42 @@ def _is_running() -> bool:
             return False
         if proc.poll() is None:
             return True
-        # 已结束但尚未被读取
-        return not _sim_state["completed"]
+        return False
+
+
+def _serialized_write(func):
+    """检查、参数写入和启动共用一把锁（单进程服务）。"""
+    @wraps(func)
+    def wrapped(*args, **kwargs):
+        with _sim_lock:
+            if _is_running():
+                return jsonify({"error": "已有模拟任务正在运行"}), 409
+            try:
+                return func(*args, **kwargs)
+            except (TypeError, ValueError, OverflowError) as exc:
+                return jsonify({"error": str(exc)}), 400
+    return wrapped
+
+
+def _update_params():
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        raise ValueError("请求体必须是 JSON 对象")
+    unknown = set(payload) - set(PARAM_INFO)
+    if unknown:
+        raise ValueError("未知参数: " + ", ".join(sorted(unknown)))
+    params = parse_datain0(DATA_FILE)
+    for name, value in payload.items():
+        if isinstance(value, bool):
+            raise ValueError(f"{name} 必须为数值")
+        params[name] = float(value)
+    validate_params(params)
+    for name in PARAM_INFO:
+        if PARAM_INFO[name].get("type") == "int":
+            params[name] = int(params[name])
+    if payload:
+        write_datain0(DATA_FILE, params)
+    return params
 
 
 def _ordered_groups():
@@ -106,7 +144,8 @@ def index():
 
 @app.route("/api/params", methods=["GET"])
 def get_params():
-    params = parse_datain0(DATA_FILE)
+    with _sim_lock:
+        params = parse_datain0(DATA_FILE)
     return jsonify({
         "info": PARAM_INFO,
         "lines": PARAM_LINES,
@@ -117,39 +156,16 @@ def get_params():
 
 
 @app.route("/api/params", methods=["POST"])
+@_serialized_write
 def set_params():
-    payload = request.get_json(force=True, silent=True) or {}
-    params = parse_datain0(DATA_FILE)
-    for name in PARAM_INFO:
-        if name in payload:
-            try:
-                if PARAM_INFO[name].get("type") == "int":
-                    params[name] = int(payload[name])
-                else:
-                    params[name] = float(payload[name])
-            except (TypeError, ValueError):
-                return jsonify({"error": f"参数 {name} 数值无效: {payload[name]}"}), 400
-    write_datain0(DATA_FILE, params)
-    return jsonify({"values": params})
+    return jsonify({"values": _update_params()})
 
 
 @app.route("/api/run", methods=["POST"])
+@_serialized_write
 def run_simulation():
-    if _is_running():
-        return jsonify({"error": "已有模拟任务正在运行"}), 409
-
-    payload = request.get_json(force=True, silent=True) or {}
-    if payload:
-        params = parse_datain0(DATA_FILE)
-        for name in PARAM_INFO:
-            if name in payload:
-                if PARAM_INFO[name].get("type") == "int":
-                    params[name] = int(payload[name])
-                else:
-                    params[name] = float(payload[name])
-        write_datain0(DATA_FILE, params)
-
-    clear_progress()
+    _update_params()
+    clear_progress(ROOT / "simulation_progress.json")
 
     python_exe = sys.executable
     main_py = ROOT / "src" / "main.py"
@@ -167,13 +183,16 @@ def run_simulation():
         _sim_state["returncode"] = None
         _sim_state["stdout"] = ""
         _sim_state["stderr"] = ""
-        _sim_state["process"] = subprocess.Popen(
-            [python_exe, str(main_py)],
-            cwd=str(ROOT),
-            stdout=open(stdout_path, "w", encoding="utf-8", errors="ignore"),
-            stderr=open(stderr_path, "w", encoding="utf-8", errors="ignore"),
-            env=env,
-        )
+        try:
+            with open(stdout_path, "w", encoding="utf-8") as stdout_file, open(stderr_path, "w", encoding="utf-8") as stderr_file:
+                _sim_state["process"] = subprocess.Popen(
+                    [python_exe, str(main_py)], cwd=str(ROOT),
+                    stdout=stdout_file, stderr=stderr_file, env=env,
+                )
+        except OSError as exc:
+            _sim_state.update(process=None, completed=True, returncode=1)
+            return jsonify({"error": f"无法启动模拟: {exc}"}), 500
+
 
     return jsonify({
         "status": "started",
@@ -184,7 +203,7 @@ def run_simulation():
 
 @app.route("/api/progress", methods=["GET"])
 def get_progress():
-    progress = read_progress() or {
+    progress = read_progress(ROOT / "simulation_progress.json") or {
         "iteration": 0,
         "max_iterations": 0,
         "progress": 0.0,
@@ -251,7 +270,7 @@ def get_results():
 def get_output_raw():
     if not OUTPUT_FILE.exists():
         return jsonify({"error": "尚未生成 GASTEST.DAT"}), 404
-    text = OUTPUT_FILE.read_text(encoding="gbk", errors="ignore")
+    text = read_result_text(OUTPUT_FILE)
     return jsonify({"text": text})
 
 

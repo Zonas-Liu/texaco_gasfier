@@ -97,6 +97,18 @@ def kolerg(output_file=None):
     else:
         outfile = output_file
     
+    # NEWTRA 更新未知量后，重算输出用派生量，避免使用上轮/雅可比扰动态。
+    from subroutines.mass_flow import xmass
+    from functions.reaction_rates import WDKR
+    for i in range(common.NZRA, common.NZRE + 1):
+        common.FEM[i] = sum(common.FEMF[j, i] for j in range(1, 9))
+        common.U0[i] = common.FEM[i] * common.RAG * common.T[i] / (common.PWK * common.AT[i])
+        tw = (common.TW_WALL if i <= common.NZRC else common.TW_RSC) if common.KMODEL == 1 else common.TW
+        common.QKW[i] = (WDKR(common.T[i], tw) * common.AR[i] * common.DELZ[i]
+                         * (common.T[i] - tw)) if common.T[i] > tw else 0.0
+    xmass()
+    entkol()
+
     # 调用KONTR进行质量/能量平衡检查
     hein, haus, dh, dm, xmein, xmaus = kontr()
     
@@ -235,6 +247,26 @@ def kolerg(output_file=None):
             outfile.write(f"      燃烧室出口干基H2:   {common.FEMF[6, common.NZRC]/dry_rc*100.:>10.2f} %\n")
         outfile.write(f"      辐射废锅出口温度:   {common.T[common.NZRE]-273.15:>10.2f} C\n")
         outfile.write("-" * 60 + "\n")
+
+        # 燃烧室出口 vs 辐射废锅出口 各组分流量对比 [Nm3/s]
+        comp_names = {1: 'O2', 2: 'CH4', 3: 'CO', 4: 'CO2',
+                      5: 'H2S', 6: 'H2', 7: 'N2', 8: 'H2O'}
+        outfile.write("\n      各组分流量对比 (Nm3/s):\n")
+        outfile.write(f"      {'组分':>6s} {'燃烧室出口':>12s} {'废锅出口':>12s} {'变化量':>12s}\n")
+        for j in range(1, 9):
+            v_rc = common.FEMF[j, common.NZRC] * 22.4
+            v_re = common.FEMF[j, common.NZRE] * 22.4
+            outfile.write(f"      {comp_names[j]:>6s} {v_rc:>12.4f} {v_re:>12.4f} "
+                          f"{v_re-v_rc:>+12.4f}\n")
+        v_rc_tot = common.FEM[common.NZRC] * 22.4
+        v_re_tot = common.FEM[common.NZRE] * 22.4
+        outfile.write(f"      {'总计':>6s} {v_rc_tot:>12.4f} {v_re_tot:>12.4f} "
+                      f"{v_re_tot-v_rc_tot:>+12.4f}\n")
+        v_rc_dry = dry_rc * 22.4
+        v_re_dry = (common.FEM[common.NZRE] - common.FEMF[8, common.NZRE]) * 22.4
+        outfile.write(f"      {'干基':>6s} {v_rc_dry:>12.4f} {v_re_dry:>12.4f} "
+                      f"{v_re_dry-v_rc_dry:>+12.4f}\n")
+        outfile.write("-" * 60 + "\n")
         outfile.write(f"      水冷壁热负荷:       {q_wall/1.0e6:>10.3f} MW\n")
         outfile.write(f"      水冷壁产汽量:       {stm_wall*3.6:>10.3f} t/h\n")
         outfile.write(f"      辐射废锅热负荷:     {q_rsc/1.0e6:>10.3f} MW\n")
@@ -243,7 +275,7 @@ def kolerg(output_file=None):
         outfile.write("=" * 60 + "\n")
     
     # 保存结果到START.DAT文件
-    start_dat_path = os.path.join(os.path.dirname(__file__), '..', '..', 'START.DAT')
+    start_dat_path = os.path.join(os.getcwd(), 'START.DAT')
     try:
         with open(start_dat_path, 'w') as f:
             # 输出FEMF(1-4)
@@ -483,12 +515,12 @@ def kontr():
     """
     # ===== 元素平衡检查 =====
     # 输入元素总量
-    c_total = common.BSLURRY * common.RATIO_COAL * common.ELC
+    c_total = common.BSLURRY * common.RATIO_COAL * common.ELC + sum(common.FEDCO2) * 12.0
     h_total = common.BSLURRY * (common.RATIO_COAL * (common.ELH + common.ELH2O * 2.0 / 18.0)
                                  + (1.0 - common.RATIO_COAL) * 2.0 / 18.0)
     o_total = common.BSLURRY * (common.RATIO_COAL * (common.ELO + common.ELH2O * 16.0 / 18.0)
-                                 + (1.0 - common.RATIO_COAL) * 16.0 / 18.0) + common.GFOX * common.PURE_O2
-    xn_total = common.BSLURRY * common.RATIO_COAL * common.ELN + common.GFOX * (1.0 - common.PURE_O2)
+                                 + (1.0 - common.RATIO_COAL) * 16.0 / 18.0) + sum(common.FEEDO2) * 32.0 + sum(common.FEDCO2) * 32.0
+    xn_total = common.BSLURRY * common.RATIO_COAL * common.ELN + sum(common.FEEDN2) * 28.0
     s_total = common.BSLURRY * common.RATIO_COAL * common.ELS
     ash_total = common.BSLURRY * common.RATIO_COAL * common.ELAS
     
@@ -508,7 +540,7 @@ def kontr():
     
     # O: O2(2O) + CO(O) + CO2(2O) + H2O(O) + 焦油中的O
     sum_o = ((common.FEMF[1, nzre_idx] * 2.0 + common.FEMF[3, nzre_idx] 
-              + common.FEMF[4, nzre_idx] * 2.0 + common.FEMF[8, nzre_idx])
+              + common.FEMF[4, nzre_idx] * 2.0 + common.FEMF[8, nzre_idx]) * 16.0
              + common.RVTAR[0] * 0.014 * 16.0 * common.KCHECK)
     
     # N: N2(2N)
@@ -537,7 +569,8 @@ def kontr():
     for i in range(common.NZEL1, common.NZEL2 + 1):
         heing += (common.FEEDO2[i] * common.FEEDH[1, i] 
                   + common.FEEDN2[i] * common.FEEDH[2, i]
-                  + common.FEDH2O[i] * common.HFH2O[i])
+                  + common.FEDH2O[i] * common.HFH2O[i]
+                  + common.FEDCO2[i] * common.FEEDH[3, i])
         
         heing += (common.RVCH4[i] * ENTHP(2, 'G', common.TFEED_SL, common.PFEED_SL)
                   + (common.RH2[i] + common.RVH2[i]) * ENTHP(6, 'G', common.TFEED_SL, common.PFEED_SL)
