@@ -1,202 +1,132 @@
-# TEXACO Python版本 - 使用示例
+# 可复现运行示例
 
-本文档提供TEXACO气化炉模拟程序的常见使用场景和示例。
+[文档总索引](README.md) · [输入协议](code_reference/05_INPUT_OUTPUT.md) · [验证说明](code_reference/09_VALIDATION_AND_LIMITATIONS.md)
 
----
+以下Windows命令从仓库根目录运行，使用`.venv`。新实验优先放到独立目录，保留根目录正在展示的结果。
 
-## 快速开始
+## 1. 安装与最短运行
 
-### 1. 基础运行
-
-```bash
-cd python_final
-python src/main.py
+```powershell
+python -m venv .venv
+.venv\Scripts\python.exe -m pip install -r requirements.txt
+.venv\Scripts\python.exe src/main.py
 ```
 
-程序将读取默认的 `data/START.DAT` 和 `data/Datain0.dat`，输出结果到 `GASTEST.DAT`。
+最后一条使用`data/Datain0.dat`，在当前工作目录生成GASTEST/START/进度等。`main.py`没有输入文件命令行解析，**不能**依靠`python src/main.py another.dat`切换工况；自定义路径应调用Python的`main(data_path)`，见下一节。
 
-### 2. 指定不同输入文件
+返回码0表示内层收敛且启用的目标通过；2表示未收敛或设计失败；异常为其他非零。普通正算失败也可能写START，重要工况应先复制输入和重启数据再运行。
 
-```bash
-# 使用Case 1参数
-cp data/Datain0_case1.dat data/Datain0.dat
-python src/main.py
+## 2. 隔离自定义正算：完整可执行示例
 
-# 使用Case 2参数
-cp data/Datain0_case2.dat data/Datain0.dat
-python src/main.py
-```
-
----
-
-## 输入文件配置
-
-### Datain0.dat 主要参数
-
-```
-&CONTRL
-  MATER = 0.55          # 煤进料量 [kg/s]
-  OXY = 0.46888         # 氧气进料量 [kg/s]
-  YO2 = 0.95            # 氧气浓度
-  H2OI = 0.14083        # 水蒸气进料量 [kg/s]
-  P = 25.0              # 操作压力 [bar]
-  TRCOAL = 300.0        # 煤入口温度 [K]
-  TGO = 500.0           # 气体入口温度 [K]
-/
-
-&GEOM
-  NMAX = 15             # 径向网格数
-  NZ = 30               # 轴向网格数
-  ZMAX = 15.0           # 反应器高度 [m]
-  RMAX = 0.5            # 反应器半径 [m]
-/
-
-&CONVER
-  MAXIT = 200           # 最大迭代次数
-  EPS = 1.0E-4          # 收敛准则
-/
-```
-
-### START.DAT 初始条件格式
-
-```
-变量标签行（27个变量名）
-数据行（每行NZ个值，空格分隔）
-```
-
----
-
-## 输出结果解读
-
-### GASTEST.DAT 输出示例
-
-```
-  输  出  打  印  ---  第  1  次
-
-径向     高度[m]  温度[K]  CH4     CO      CO2     H2      H2O     N2      O2      气体质量流   固体质量流
-
- 1        0.50     1873.2   0.052   0.458   0.085   0.289   0.058   0.042   0.016    2.45        0.85
- 2        1.00     1789.5   0.048   0.462   0.089   0.295   0.052   0.041   0.013    2.52        0.82
-...
-```
-
-### 收敛历史格式
-
-```
-迭代    SUMFE       SUMWE       SUMX        SUMT        状态
-  1     1.234E-02   5.678E-03   2.345E-02   8.901E-03   未收敛
-  2     9.876E-03   4.567E-03   1.987E-02   7.654E-03   未收敛
-...
- 62     3.456E-05   2.109E-05   4.321E-05   1.987E-05   收敛
-```
-
-收敛准则：
-- `SUMFE` < 1.0E-4：气体组分收敛
-- `SUMWE` < 1.0E-4：固体质量流收敛
-- `SUMX` < 1.0E-4：碳转化率收敛
-- `SUMT` < 1.0E-4：温度收敛
-
----
-
-## 常见问题
-
-### 问题1: 程序不收敛
-
-**可能原因:**
-1. 初始条件不合理
-2. 网格划分过密或过疏
-3. 松弛因子不合适
-
-**解决方法:**
-```python
-# 检查松弛因子设置 (math_utils.py中的kolon1函数)
-omega = 1.0  # 默认值，可适当减小（如0.8）以改善收敛
-```
-
-### 问题2: 结果与Fortran版本不一致
-
-**检查清单:**
-1. 确认使用的是相同版本的START.DAT和Datain0.dat
-2. 检查Python和Fortran的浮点精度设置
-3. 验证矩阵求解器参数（NSGP, NSGP1, NVWS等）
-
-### 问题3: 内存错误
-
-**原因:** 网格数过多导致数组过大
-
-**解决方法:**
-```
-&GEOM
-  NMAX = 10        # 减小径向网格数
-  NZ = 20          # 减小轴向网格数
-/
-```
-
----
-
-## 高级用法
-
-### 参数敏感性分析
+把以下Python代码放在仓库根目录临时脚本中，以`.venv\Scripts\python.exe <脚本名>`运行，或在PowerShell用here-string管道给`.venv\Scripts\python.exe -`。示例只写新的实验子目录；计算使用独立进程。
 
 ```python
+from pathlib import Path
+from datetime import datetime
+import json
+import os
 import subprocess
+import sys
 
-# 批量运行不同煤进料量
-for mater in [0.50, 0.55, 0.60, 0.65]:
-    # 修改Datain0.dat中的MATER值
-    modify_datain0(mater=mater)
-    
-    # 运行程序
-    subprocess.run(['python', 'src/main.py'])
-    
-    # 保存结果
-    copy_result(f'result_mater_{mater}.dat')
+root = Path.cwd().resolve()
+if not (root / 'src/main.py').is_file():
+    raise RuntimeError('请从仓库根目录运行')
+sys.path.insert(0, str(root))
+from web_backend.dataparser import parse_datain0, write_datain0, parse_gastest
+
+case = root / 'numeric_test/python_output' / ('manual-' + datetime.now().strftime('%Y%m%d-%H%M%S-%f'))
+case.mkdir(parents=True)
+datain = case / 'Datain0.dat'
+datain.write_bytes((root / 'data/Datain0.dat').read_bytes())
+params = parse_datain0(datain)
+params.update(KTRL=1, KMODEL=1, FEED_MODE=0, RSC_MODE=0,
+              BSLURRY=14.0, FOXY=0.98, H_RSC=30.0)
+write_datain0(datain, params)
+
+driver = '''import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(sys.argv[1]) / "src"))
+from main import main
+raise SystemExit(main(sys.argv[2]))
+'''
+with (case / 'run.log').open('w', encoding='utf-8') as log:
+    proc = subprocess.run([sys.executable, '-c', driver, str(root), str(datain)],
+                          cwd=case, stdout=log, stderr=log,
+                          env={**os.environ, 'PYTHONIOENCODING': 'utf-8'})
+print('输出目录:', case, '退出码:', proc.returncode)
+if proc.returncode != 0:
+    raise RuntimeError('未通过，查看run.log和simulation_progress.json')
+result = parse_gastest(case / 'GASTEST.DAT')
+for section in result['outlet_sections']:
+    print(section['label'], section['temperature_c'], section['ash_kg_h'])
+(case / 'parsed-result.json').write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding='utf-8')
 ```
 
-### 自定义输出
+`write_datain0`接收Pa绝压/K，不能将MPaG/℃直接传入。典型新物性结果约1232.374℃/791.480℃，仅用于快速辨识工况；正式验收用完整状态与独立账。
+
+## 3. 在独立输入上切换设计模式
+
+替换上述`params.update(...)`，其他运行步骤相同：
 
 ```python
-from common.common_data import common
-from subroutines.output_results import write_convergence
-
-# 在特定迭代保存中间结果
-if iteration % 10 == 0:
-    write_convergence(iteration, common)
+params.update(KTRL=1, KMODEL=1,
+              FEED_MODE=1, T_CHAMBER_C=1228.0, EFFECTIVE_GAS_NMH=52000.0,
+              FOXY=0.98, BSLURRY=14.0,
+              FOXY_MIN=0.7, FOXY_MAX=1.3, SLURRY_MIN=5.0, SLURRY_MAX=30.0,
+              RSC_MODE=1, T_RSC_OUT_C=780.0,
+              H_RSC=30.0, H_RSC_MIN=1.0, H_RSC_MAX=120.0)
 ```
 
----
+只求废锅高度时保留FEED_MODE=0；只求进料时保留RSC_MODE=0。有效气量为第30格CO+H₂的Nm³/h。成功结果中的FOXY/煤浆为解，原输入仍是搜索初值，不自动回写。
 
-## 故障排除
+产汽量由同次壁面热量/IF97焓差求出，不是第三个独立目标。改变P_DRUM/T_FW影响产汽换算，当前有效壁温不随汽包状态自动更新。
 
-### 运行时错误
+## 4. 标准隔离验收
 
-| 错误信息 | 可能原因 | 解决方法 |
-|---------|---------|---------|
-| `IndexError: index out of bounds` | 数组索引越界 | 检查NZEL1/NZEL2设置 |
-| `ValueError: math domain error` | 对数/平方根负数 | 检查输入数据的合理性 |
-| `MemoryError` | 内存不足 | 减小网格数量 |
-| `Convergence failed` | 不收敛 | 调整松弛因子或初始条件 |
-
-### 调试模式
-
-```python
-# 在main.py中启用调试输出
-DEBUG = True
-
-if DEBUG:
-    print(f"DMAT[1,1] = {common.DMAT[1,1]}")
-    print(f"T[1] = {common.T[1]}")
+```powershell
+.venv\Scripts\python.exe numeric_test/benchmark_solver.py --cases fixed texaco --output numeric_test/python_output/example-models
+.venv\Scripts\python.exe numeric_test/check_element_balance.py --cases baseline --output numeric_test/python_output/example-elements
+.venv\Scripts\python.exe numeric_test/check_feed_design.py --output numeric_test/python_output/example-feed
 ```
 
----
+重复执行会覆盖同名案例，保留证据时改新目录名。benchmark的`state.npz`包含完整COMMON数值状态。其进程退出0不保证每个工况成功，检查summary的returncode。`--cases zero-volatiles`用于元素脚本的XVM=0诊断，目前未通过，不并入成功清单。
 
-## 联系与支持
+## 5. Web与Streamlit
 
-如有问题，请参考：
-- `docs/ISSUE_REGISTRY.md`: 已知问题列表
-- `docs/TODO.md`: 开发计划和待办事项
-- `ARCHIVE_NOTES.md`: 版本历史
+```powershell
+.venv\Scripts\python.exe web_backend/app.py
+# 或（不要同时启动同目录计算）
+.venv\Scripts\streamlit.exe run app.py
+```
 
----
+Web默认http://127.0.0.1:5000，Streamlit默认8501。Web编辑17行协议，Streamlit编辑前11行、保留扩展。界面统一MPaG/℃，文件和API仍为Pa绝压/K。
 
-*最后更新: 2026-03-20*
+只读API：
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:5000/api/params
+Invoke-RestMethod http://127.0.0.1:5000/api/results
+```
+
+下列命令会改根目录参数/启动根目录计算，仅在明确操作该工况时执行：
+
+```powershell
+# 6.5e6 Pa绝压，即6.398675 MPaG；423.15 K即150℃
+Invoke-RestMethod -Method Post -Uri http://127.0.0.1:5000/api/params -ContentType 'application/json' -Body '{"P_DRUM":6500000,"T_FW":423.15}'
+Invoke-RestMethod -Method Post -Uri http://127.0.0.1:5000/api/run -ContentType 'application/json' -Body '{}'
+Invoke-RestMethod http://127.0.0.1:5000/api/progress
+```
+
+启动HTTP200仅表示进程启动，需等returncode/最终状态并检查目标。运行中改参/重复启动返回409；JSON根必须对象，空请求不等于`{}`。服务锁不保护其他CLI或Flask进程。
+
+## 6. 修改与提交前检查
+
+```powershell
+.venv\Scripts\python.exe scripts/check_docs.py --write-index
+.venv\Scripts\python.exe scripts/check_docs.py
+.venv\Scripts\python.exe -m unittest discover -s numeric_test -p "test_*.py" -v
+git diff --check
+git status --short
+```
+
+数值模型变化还需相应完整求解、独立守恒与目标失败测试。不要提交虚拟环境、本机日志或大量实验状态，保留命令和精简验收证据。

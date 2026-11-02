@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-TEXACO气化炉CFD模拟 - 初始化和几何模块
+TEXACO气化炉一维稳态模拟 - 初始化和几何模块
 对应Fortran的Wg2.for
 包含子程序:
 - EINGAB: 输入数据和初始化
@@ -281,10 +281,10 @@ def eingab(data_path='data/Datain0.dat', output_file=None, overrides=None):
     geometry()
     
     # 计算质量流量
-    # BSMS: 干煤质量流量 [kg/s]
+    # BSMS: 输入煤质量流量 [kg/s]；ELH2O>0时含煤内水，不自动换干基。
     common.BSMS = common.BSLURRY * common.RATIO_COAL
     
-    # BSWAF: 干煤+灰分(除去水和灰分后的煤)质量流量 [kg/s]
+    # BSWAF: 去除煤内水和灰后的无水无灰煤质量流量 [kg/s]
     common.BSWAF = common.BSMS * (1.0 - common.ELH2O - common.ELAS)
     
     # FOX: 氧气体积流量 [Nm3/s]
@@ -300,7 +300,7 @@ def eingab(data_path='data/Datain0.dat', output_file=None, overrides=None):
     gfco2 = fco2 / common.VM_NORMAL * common.MCO2
     
     # 计算进料分配 (循环I=NZRA到NZFED,即第1个格子)
-    # 注意: Fortran使用1-based索引,Python使用0-based但保持数组大小为31来兼容
+    # 保留Fortran 1-based有效索引；0号槽不参与此进料循环，容量NZDIM=61。
     for i in range(common.NZRA, common.NZFED + 1):
         # WFA: 灰分质量流量 [kg/s]
         common.WFA[i] = common.ELAS * common.BSMS * common.DELZ[i] / common.HFED
@@ -469,7 +469,8 @@ def geometry():
         HREAK8=0.1876m, DIA8=1.025m,   NZR7-1=4 到 NZRA=1
         
     晋华炉3.0 (KMODEL=1) 时, 燃烧室下游追加辐射废锅段:
-        H_RSC=12.0m, D_RSC=2.6m, 格子 NZRC+1=31 到 NZRE=NZRC+N_RSC
+        H_RSC/D_RSC取输入，默认30.0m/2.6m，格子31到NZRC+N_RSC。
+        H保留历史位置约定；连续沿流动距离应另由DELZ累计。
     """
     # 各段高度 [m]
     hreak1 = 0.4
@@ -611,8 +612,8 @@ def qhcrct():
         - 用于能量平衡计算
     
     注意:
-        该函数依赖于ENTHP函数(在Wg7.for中定义)
-        由于依赖关系,ENTHP的调用暂时注释,需要时取消注释
+        当前使用历史显式常数，未调用ENTHP。QH_CRCT单位与水生成焓
+        数值需专项核验，见docs/code_reference/07_THERMODYNAMICS.md。
     """
     # 累加各格子中的挥发分释放量
     rco21 = 0.0   # CO2总释放量
@@ -640,7 +641,7 @@ def qhcrct():
             rvtar1 * common.BSMS * (-9.3)) / common.BSMS * 1000.0 -
             rh2s1 * (-20.18))
     
-    # 热量校正 [J/kg]
+    # 历史热量校正；旧称J/kg，能量行按功率使用，量纲待核验。
     common.QH_CRCT = (huu + common.HU) * 1000.0
     
     # 计算热解后的焓值 (需要ENTHP函数)

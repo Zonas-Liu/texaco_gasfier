@@ -1,157 +1,39 @@
-# TEXACO Python版本 - 代码详细文档
+# TEXACO / 晋华炉3.0 代码与数学物理手册
 
-本文档集合提供了TEXACO气化炉CFD模拟程序的完整技术参考。
+本手册按2026-11-02的实际实现重新编写，模型基线为 `376c987`（元素守恒修复、CIAAW/CODATA常数、IF97水侧物性已合入）。后续仅整理说明、术语和无效占位语句。阅读时以本手册、源码及对应版本验收数据为准。
 
----
+这是一个**一维、稳态、气固耦合控制体模型**。它沿用Fortran变量名与1-based数组，支持原TEXACO和带辐射废锅的晋华炉。它没有求解三维动量方程，也没有把全炉组分直接设为热力学平衡。
 
-## 文档列表
+## 阅读路线
 
-### 1. [模块划分与架构概述](./01_MODULE_OVERVIEW.md)
+| 读者目标 | 建议顺序 |
+|---|---|
+| 第一次运行与理解结果 | [项目结构](../PROJECT_STRUCTURE.md) → [运行示例](../USAGE_EXAMPLES.md) → 第5、9章 |
+| 理解数学物理模型 | 第1章变量定义 → 第3章守恒 → 第6章反应 → 第7章物性 → 第9章适用边界 |
+| 修改求解器 | 第2章执行流程 → 第8章离散/牛顿/外层设计 → 第4章接口 → 第9章测试 |
+| 接入其他界面或脚本 | 第4、5章 → 第10章符号定位 |
+| 判断结果能否用于工程 | 第9章 → [守恒验收](../ELEMENT_BALANCE_FIX.md) → [常数来源](../PHYSICAL_CONSTANTS.md) |
 
-**内容**:
-- 程序总体架构图
-- 各模块详细说明
-- 函数输入输出列表
-- 变量索引说明
-- 程序执行流程图
+## 章节索引
 
-**适用读者**: 项目架构师、技术负责人
+1. [模块、状态与变量字典](01_MODULE_OVERVIEW.md)：代码职责、数组形状、索引、单位、生命周期、Fortran对应关系。
+2. [执行流程与调用关系](02_CALL_HIERARCHY.md)：启动、初始化、一次牛顿迭代、反算、输出、Web/Streamlit时序。
+3. [控制体与守恒方程](03_MATHEMATICAL_MODELS.md)：几何、进料、8个气体方程、2个固体方程、能量方程、元素闭合。
+4. [Python接口与Web API](04_API_REFERENCE.md)：调用前置条件、输入输出、副作用、失败语义、辅助接口。
+5. [输入、输出和单位协议](05_INPUT_OUTPUT.md)：17行输入参数、默认值、校验、START布局、JSON字段及历史文件兼容。
+6. [反应网络与速率模型](06_REACTION_KINETICS.md)：FLUCHT、XK1–6、A1–5、反应核/传质、废锅松弛及阈值。
+7. [热力学、传热与颗粒闭合](07_THERMODYNAMICS.md)：焓参考态、热容积分、IF97、辐射、热校正、速度及停留时间。
+8. [数值求解与设计反算](08_NUMERICAL_METHODS.md)：残差/雅可比、块索引、带状矩阵、限步、收敛、高度及进料搜索。
+9. [验证、限制与开发约定](09_VALIDATION_AND_LIMITATIONS.md)：证据分级、复现、已知问题、变更检查、排错。
+10. [源码符号索引](10_CODE_INDEX.md)：从AST生成的模块、类、函数签名及源码行号；用于定位，不代替前9章的语义说明。
 
----
+## 阅读约定
 
-### 2. [函数调用关系与代码架构](./02_CALL_HIERARCHY.md)
+- `代码名`保留大小写；公式的物理符号在首次出现时定义，并指向实际函数。
+- “当前实现”表示代码确实这样计算，不表示该关联式已充分标定。
+- “独立验证”只指报告明确列出的验证范围；源码自带诊断不自动算独立验证。
+- 历史名称可能不准确：`X`是固体碳质量分数，`WE`是总固体流，`AR`是周长；`SUM*`是原始牛顿修正量绝对值和。
+- 数值输入不自动由收到基换成干基/干燥无灰基；煤元素、煤水和灰必须采用相容基准。
+- 正常入口固定`KCHECK=0`、`KTRLR=1`、`KTRLT=1`。辅助分支存在不等于界面支持或已通过验收。
 
-**内容**:
-- 完整的函数调用层次图
-- Python与Fortran代码对照
-- 详细的代码块示例
-- 调用关系总图
-
-**适用读者**: 开发人员、代码审查者
-
-**包含代码对照**:
-- `main()` - 主程序
-- `eingab()` - 初始化
-- `geometry()` - 几何计算
-- `gasifier()` - 气化炉主计算
-- `xk1()-xk6()` - 气相反应
-- `flucht()` - 挥发分释放
-- `A1()-A5()` - 碳反应速率
-- `blktrd()` - 块三对角求解
-
----
-
-### 3. [数学物理模型详解](./03_MATHEMATICAL_MODELS.md)
-
-**内容**:
-- 质量平衡方程（气体组分、固体）
-- 能量平衡方程
-- 气相反应动力学（XK1-XK6）
-- 异相反应动力学（A1-A5）
-- 扩散与传质模型（Wen模型）
-- 热力学性质计算
-
-**适用读者**: 研究人员、算法工程师
-
-**包含公式**:
-- 所有平衡方程的数学表达式
-- 反应速率方程
-- 扩散系数计算
-- 热容积分公式
-
----
-
-### 4. [API函数参考手册](./04_API_REFERENCE.md)
-
-**内容**:
-- 所有函数的完整API文档
-- 参数类型和说明
-- 返回值说明
-- 调用示例
-- 常量参考表
-
-**适用读者**: 应用开发者、测试工程师
-
-**包含API**:
-- 主程序模块 (main.py)
-- 全局数据模块 (common_data.py)
-- 初始化模块 (initialization.py)
-- 气化炉主模块 (gasifier_main.py)
-- 质量流模块 (mass_flow.py)
-- 气相反应模块 (gas_reactions.py)
-- 反应速率模块 (reaction_rates.py)
-- 数学工具模块 (math_utils.py)
-
----
-
-## 快速导航
-
-### 按主题查找
-
-| 主题 | 推荐文档 |
-|------|----------|
-| 想了解程序整体结构 | [01_MODULE_OVERVIEW.md](./01_MODULE_OVERVIEW.md) |
-| 想理解函数调用关系 | [02_CALL_HIERARCHY.md](./02_CALL_HIERARCHY.md) |
-| 想查看数学方程 | [03_MATHEMATICAL_MODELS.md](./03_MATHEMATICAL_MODELS.md) |
-| 想查阅函数API | [04_API_REFERENCE.md](./04_API_REFERENCE.md) |
-
-### 按角色查找
-
-| 角色 | 推荐文档 |
-|------|----------|
-| 项目经理/架构师 | [01_MODULE_OVERVIEW.md](./01_MODULE_OVERVIEW.md) |
-| 开发人员 | [02_CALL_HIERARCHY.md](./02_CALL_HIERARCHY.md) |
-| 研究人员 | [03_MATHEMATICAL_MODELS.md](./03_MATHEMATICAL_MODELS.md) |
-| 测试/应用工程师 | [04_API_REFERENCE.md](./04_API_REFERENCE.md) |
-
----
-
-## 文档使用建议
-
-### 初次接触项目
-
-1. 先阅读 [01_MODULE_OVERVIEW.md](./01_MODULE_OVERVIEW.md) 了解整体架构
-2. 查看 [02_CALL_HIERARCHY.md](./02_CALL_HIERARCHY.md) 的主程序调用层次
-3. 根据需要深入查看具体模块
-
-### 进行代码开发
-
-1. 使用 [04_API_REFERENCE.md](./04_API_REFERENCE.md) 查找函数API
-2. 参考 [02_CALL_HIERARCHY.md](./02_CALL_HIERARCHY.md) 了解调用关系
-3. 查看 [03_MATHEMATICAL_MODELS.md](./03_MATHEMATICAL_MODELS.md) 理解数学原理
-
-### 进行模型研究
-
-1. 重点阅读 [03_MATHEMATICAL_MODELS.md](./03_MATHEMATICAL_MODELS.md)
-2. 对比Fortran代码理解实现细节
-3. 参考 [02_CALL_HIERARCHY.md](./02_CALL_HIERARCHY.md) 查看代码对照
-
----
-
-## 相关文档
-
-- [项目README](../README.md) - 项目总体介绍
-- [问题登记册](../ISSUE_REGISTRY.md) - 已知问题跟踪
-- [项目结构说明](../PROJECT_STRUCTURE.md) - 目录结构规范
-- [使用示例](../USAGE_EXAMPLES.md) - 使用指南
-
----
-
-## 文档维护
-
-- **创建日期**: 2026-03-20
-- **最后更新**: 2026-03-20
-- **版本**: v1.0
-- **维护者**: TEXACO Python移植项目组
-
----
-
-## 反馈与建议
-
-如发现文档错误或有改进建议，请：
-1. 在ISSUE_REGISTRY.md中登记
-2. 或直接联系项目维护者
-
----
-
-*本文档遵循MIT许可证*
+本手册用相对链接便于在GitHub及本地编辑器阅读；数学使用GitHub支持的LaTeX，调用关系使用Mermaid。文档检查：`.venv\Scripts\python.exe scripts/check_docs.py`。旧文档和审查记录的定位见[文档总索引](../README.md)。

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-TEXACO气化炉CFD模拟 - 质量流量计算
+TEXACO气化炉一维稳态模拟 - 质量流量计算
 对应Fortran中的XMASS子程序
 """
 import numpy as np

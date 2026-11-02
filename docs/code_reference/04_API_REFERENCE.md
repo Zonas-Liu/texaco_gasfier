@@ -1,721 +1,99 @@
-# TEXACO Python版本 - API函数参考手册
+# 4. Python接口与Web API
 
-本文档提供TEXACO气化炉模拟程序所有函数的完整API参考。
+[手册首页](README.md) · [完整签名与源码行号](10_CODE_INDEX.md)
 
----
+以下接口服务于现有共享状态模型。多数函数有COMMON副作用，并非纯函数。导入时应将仓库src加入sys.path，统一用`common.../functions.../subroutines...`模块路径；不要在同一进程以不同模块名重复装入不同的COMMON实例。
 
-## 目录
+## 4.1 主计算与初始化接口
 
-1. [主程序模块 (main.py)](#1-主程序模块-mainpy)
-2. [全局数据模块 (common_data.py)](#2-全局数据模块-common_datapy)
-3. [初始化模块 (initialization.py)](#3-初始化模块-initializationpy)
-4. [气化炉主模块 (gasifier_main.py)](#4-气化炉主模块-gasifier_mainpy)
-5. [质量流模块 (mass_flow.py)](#5-质量流模块-mass_flowpy)
-6. [气相反应模块 (gas_reactions.py)](#6-气相反应模块-gas_reactionspy)
-7. [反应速率模块 (reaction_rates.py)](#7-反应速率模块-reaction_ratespy)
-8. [数学工具模块 (math_utils.py)](#8-数学工具模块-math_utilspy)
+| 接口 | 输入与前置条件 | 返回/副作用 |
+|---|---|---|
+| main(data_path) | 已存在有效工况；输出工作目录可写；没有另一计算共用目录 | 0或2；异常上报后抛出；覆盖GASTEST、进度及可能的START |
+| eingab(data_path,output_file=None,overrides=None) | 路径相对仓库或绝对；overrides仅FOXY/BSLURRY/KTRL | None；原位清空COMMON并完整构建当前工况，可能读取START |
+| geometry() | KMODEL/格子范围、RSC尺寸和边界已设置 | None；写H/DELZ/AT/AR/HREAK/HFED/HNZFR，不自动重建进料 |
+| qhcrct() | FLUCHT释放量及煤质已有效 | None；写QH_CRCT/DELTH/H_RACT/H_IN；历史热校正待核验 |
+| CommonData.reset() | 不得与另一计算并发 | 清空并初始化同一实例；外部引用保持 |
+| configure(common) | 已确定KMODEL，且尚未构造源项 | 写质量表、常数和CONSTANTS_BASIS |
+| validate_params(params) | 字典值可转换为有限数，包含模式所需字段 | None或ValueError；不归一化煤分析、不运行求解 |
 
----
+仅调用geometry不会自动改变FOXY派生氧量或挥发分；变进料应重新EINGAB。仅把common.T写成目标值也不会得到守恒解。
 
-## 1. 主程序模块 (main.py)
+## 4.2 方程与线性求解接口
 
-### 1.1 main()
+`gasifier`接收XMASS、ENTFED、ENTKOL、XK1–6、A1–5、PHI、RI、ENTHP、可选WDKR回调；原生回调启用局部/缓存优化，外部注入回调保持旧调用约定。返回累计碳反应速率诊断，主要结果写入A/B/C和DMAT=−R。
 
-```python
-def main()
-```
+`_calculate_dmat_for_cell(i,...)`仅计算指定格当前R，并改派生流量、物性、QKW等。它不解线性系统；调用前需确保几何、源项、上下游状态和回调有效。不要在模型已收敛后无条件调用它再误将DMAT解释为Δu。
 
-**描述**: TEXACO气化炉CFD模拟主程序入口
+`newtra(omega)`选择线性后端后调用kolon1；`solve_banded_blocks(m,N)`只线性求解并写DMAT，不更新FEMF/T/WE/X；`blktrd(m,N)`还会原地改变矩阵。`kolon1`要求DMAT已经是有限修正量。
 
-**参数**: 无
+matadd/matsub/matmult/matdiv/matums、gausll是旧BLKTRD基础设施，保留Fortran尺寸/负号表示转置的参数协议；正常新增模型代码优先使用上层求解入口，勿直接混用0-based NumPy切片与其1-based参数。
 
-**返回值**: 无
+## 4.3 物性、源项与派生量
 
-**功能**:
-1. 打开输出文件 `GASTEST.DAT`
-2. 调用 `eingab()` 进行初始化
-3. 执行主迭代循环
-4. 调用 `gasifier()` 进行气化炉计算
-5. 调用 `newtra()` 进行牛顿迭代求解
-6. 计算残差并检查收敛
-7. 输出结果
+| 接口族 | 关键前置条件 | 输出 |
+|---|---|---|
+| xk1..xk6(i) | FEM/FEMF/T/P/AT/DELZ有效，FEM>0 | 气相反应速率kmol/s；修改Y |
+| flucht() | 煤质、质量基准、BSMS/BSWAF及分配区已设 | 原位写挥发分与固定碳源项，可能截XVM上限 |
+| A1..A5(i), RI(i) | 当前持料量XMS、ROS及气体状态有效 | A为kmol/s；RI为kg/s；修改Y |
+| TPAR(i), PHI(i), XKC_*(i) | 同次状态及粒径 | K、无量纲、kmol/(m²·Pa·s) |
+| xmass(cells=None) | 按上游→下游更新；上游ROS须有效 | (选中格停留时间合计s,持料量合计kg)；修改多组数组 |
+| entfed() | 外部/挥发进料已构建 | 写FEEDH、FEDPH、HFH2O |
+| entkol(cells=None,cache=None) | 各格T/P有效；cache仅用于同次组装/同一常数配置 | 写HENTH、DHDT；cache为(T,P)→两个10元素副本 |
+| ENTHP(KOMP,IAGG,T,P) | KOMP1..10；相态G/L/S按物种支持 | 气体J/kmol，固体J/kg，含生成焓 |
+| ENTHP_DELTA(...) | 与ENTHP相同，附T_REF | 同一基准下的焓差；不用于替代完整反应焓 |
+| FH2/FCO等 | KALZG为ENTH/MOLG等受支持字符串 | 物种特定性质；未支持的请求可能返回0 |
+| WDKR(T,TW) | 正常调用者保证T>TW | W/(m²·K)；本函数未处理T=TW除零 |
+| FXMUG(Y_array,T) | 晋华炉需9槽1-based数组、8个非负组分且总和>0 | Pa·s；不等于主XMASS当前粘度 |
+| steam_production(Q,P,Tfw) | 有限Q，4–10MPa绝压，液态给水温度 | kg/s；负Q返回0 |
 
-**调用示例**:
-```python
-if __name__ == "__main__":
-    main()
-```
+两个RI要区分：`functions.reaction_rates.RI`重新算碳反应；`subroutines.output_results.RI`只读RAC诊断。两个TPAR/tpar也不能凭同名就认为所有辅助温度接口都被主流程调用。`tpar1`、`hcrt`、纯组分IDIC/IVIS等属于保留辅助路径，其存在不代表验证完备。
 
----
+## 4.4 输出及文件工具
 
-### 1.2 calculate_residuals()
+- `kolerg(output_file=None,write_restart=True)`刷新主要派生量、输出KONTR诊断与剖面/出口/产汽；None写stdout；write_restart控制调用START写入，不自动验收KONVER。
+- `write_start(outfile)`把当前状态保存到工作目录START；写入异常仅向outfile报告警告，未自动改变求解返回码。
+- `kontr()`返回`(hein,haus,dh,dm,xmein,xmaus)`，能量项W、质量kg/s；是同模型内置账，不是独立模型验证。
+- `read_result_text(Path)`先UTF-8含BOM兼容，失败再GBK；不静默替换错误字节。
+- `parse_outlet(text)`返回Temperature(C)/CarbonConversion或空字典，按明确标识搜索。
+- `write_progress`使用临时文件+os.replace避免半截JSON；写入失败不阻断计算，进度不应成为唯一成功证据。
 
-```python
-def calculate_residuals() -> tuple[float, float, float, float]
-```
+## 4.5 外层纯搜索接口
 
-**描述**: 计算当前迭代的残差 (SUMFE, SUMWE, SUMX, SUMT)
+`search_feed(evaluate,...)`的回调返回至少temperature_c、effective_gas_nmh、converged；实际驱动还返回iterations。输入initial/lower/upper均为两个正数，目标和范围应先通过校验。返回包含最终候选、success、目标/容差/误差、evaluations、trials。
 
-**参数**: 无
+`search_height(evaluate,...)`的回调返回temperature_c、converged；实际驱动另外返回热负荷/产汽/iterations。返回success及最后候选，不承诺失败时自动选取全轨迹中温差最小者。
 
-**返回**: 
-- `sumfe` (float): 气体组分残差
-- `sumwe` (float): 固体质量流残差  
-- `sumx` (float): 碳转化率残差
-- `sumt` (float): 温度残差
+`run_feed_design`和`run_target_design`是模型驱动层：管理COMMON、输出头、同次状态复用及START接受条件。外部应用通常调用main而不是手动嵌套这两个函数。
 
-**注意**: DMAT使用1-based索引（与Fortran兼容）
+## 4.6 Flask HTTP接口
 
-**数学公式**:
-```
-SUMFE = Σ|DMAT[j,i]|  (j=1 to NVE, i=NZEL1 to NZEL2)
-SUMWE = Σ|DMAT[NSGP,i]|  (i=NZEL1 to NZEL2)
-SUMX  = Σ|DMAT[NSGP1,i]|  (i=NZEL1 to NZEL2)
-SUMT  = Σ|DMAT[NVWS,i]|  (i=NZEL1 to NZEL2)
-```
+服务器绑定127.0.0.1，默认5000；当前任务可临时用其他端口。请求体及响应**仍使用核心单位Pa绝压/K**，前端显示转换见第5章。
 
----
+| 路由 | 请求 | 返回及状态 |
+|---|---|---|
+| GET / | 无 | index.html |
+| GET /api/params | 无 | info、lines、values、groups、grouped；200 |
+| POST /api/params | JSON对象，可局部更新 | 合并校验并保存；values；400非法/409计算中 |
+| POST /api/run | JSON对象，`{}`表示按已保存参数运行 | 保存后启动子进程；status=started、pid、data_file；400/409/500失败 |
+| GET /api/progress | 无 | 进度字段及running/completed、进程returncode等；200 |
+| GET /api/results | 无 | parse_gastest结构化结果、湿气补充字段；无文件404 |
+| GET /api/output | 无 | `{"text":"..."}`原始文本；无文件404 |
 
-### 1.3 print_matrices_iter0()
+未知参数拒绝；布尔值不能作为数值；整数控制量不得截断小数。JSON根必须是对象，空请求体不等于`{}`。服务无通用多用户认证/作业队列，当前仅本机单用户单任务设计。
 
-```python
-def print_matrices_iter0()
-```
-
-**描述**: 打印第一次迭代前的矩阵（用于与Fortran对比）
-
-**参数**: 无
-
-**返回值**: 无
-
-**输出文件**: `python_matrix_iter0.txt`
-
----
-
-## 2. 全局数据模块 (common_data.py)
-
-### 2.1 CommonData 类
+只读检查示例（不会启动计算或改参数）：
 
 ```python
-class CommonData()
+import json
+from urllib.request import urlopen
+with urlopen('http://127.0.0.1:5000/api/results') as response:
+    result = json.load(response)
+for section in result['outlet_sections']:
+    print(section['label'], section['temperature_c'], section['ash_kg_h'])
 ```
 
-**描述**: 单例类，用于存储全局共享数据，对应Fortran的Common块
+## 4.7 前端关键函数与状态
 
-**单例访问**:
-```python
-from common.common_data import common
-```
+`loadParams/renderParams/collectParams`读元数据并双向转换显示单位；`saveParams/runSimulation`分别保存和启动；`pollProgress`跟踪进程/计算状态；`loadResults`加载输出；`activateTab/renderTab`延迟绘图；`renderOutlets`使用同次出口JSON；`renderFeedDesign/renderDesign`展示外层轨迹。
 
-#### 2.1.1 基本参数 (Common.00)
-
-| 属性 | 类型 | 默认值 | 描述 |
-|------|------|--------|------|
-| `NGAS` | int | 8 | 气体组分数 |
-| `G` | float | 9.801 | 重力加速度 [m/s²] |
-| `RAG` | float | 8314.3 | 通用气体常数 [J/(kmol·K)] |
-| `PI` | float | 3.1415926 | 圆周率 |
-| `P0` | float | 1.01325e5 | 标准大气压 [Pa] |
-
-#### 2.1.2 结构参数
-
-| 属性 | 类型 | 默认值 | 描述 |
-|------|------|--------|------|
-| `NZWS` | int | 30 | 网格数 |
-| `NZEL1` | int | 1 | 起始网格索引 |
-| `NZEL2` | int | 30 | 结束网格索引 |
-| `NZRA` | int | 1 | 反应区起始索引 |
-| `NZRE` | int | 30 | 反应区结束索引 |
-| `NVE` | int | 8 | 气体组分数 |
-| `NSGP` | int | 9 | 固体质量流方程索引 |
-| `NSGP1` | int | 10 | 碳转化率方程索引 |
-| `NVWS` | int | 11 | 温度方程索引 |
-
-#### 2.1.3 几何参数 (Common.01)
-
-| 属性 | 类型 | 形状 | 描述 |
-|------|------|------|------|
-| `H` | ndarray | (31,) | 格子高度位置 [m] |
-| `DELZ` | ndarray | (31,) | 格子高度 [m] |
-| `AT` | ndarray | (31,) | 格子截面积 [m²] |
-| `AR` | ndarray | (31,) | 格子周长 [m] |
-| `HREAK` | float | - | 炉总高度 [m] |
-| `DIA1-8` | float | - | 各段直径 [m] |
-
-#### 2.1.4 求解变量 (Common.02)
-
-| 属性 | 类型 | 形状 | 描述 | 单位 |
-|------|------|------|------|------|
-| `FEMF` | ndarray | (9, 31) | 各组分摩尔流量 | [kmol/s] |
-| `X` | ndarray | (31,) | 碳转化率 | [-] |
-| `T` | ndarray | (31,) | 温度 | [K] |
-| `WE` | ndarray | (31,) | 碳质量流量 | [kg/s] |
-| `FEM` | ndarray | (31,) | 总摩尔流量 | [kmol/s] |
-| `U0` | ndarray | (31,) | 气体速度 | [m/s] |
-| `US` | ndarray | (31,) | 颗粒速度 | [m/s] |
-| `TRZ` | ndarray | (31,) | 停留时间 | [s] |
-| `XMS` | ndarray | (31,) | 格子内固体质量 | [kg] |
-| `EPS` | ndarray | (31,) | 空隙率 | [-] |
-
-#### 2.1.5 矩阵 (Common.03)
-
-| 属性 | 类型 | 形状 | 描述 |
-|------|------|------|------|
-| `AMAT` | ndarray | (13, 13, 32) | 下对角块矩阵 |
-| `BMAT` | ndarray | (13, 13, 32) | 对角块矩阵 |
-| `CMAT` | ndarray | (13, 13, 32) | 上对角块矩阵 |
-| `DMAT` | ndarray | (13, 32) | 右端向量 |
-
----
-
-## 3. 初始化模块 (initialization.py)
-
-### 3.1 eingab()
-
-```python
-def eingab(data_path: str = 'data/Datain0.dat')
-```
-
-**描述**: 输入数据和初始化子程序
-
-**参数**:
-| 参数名 | 类型 | 默认值 | 描述 |
-|--------|------|--------|------|
-| `data_path` | str | 'data/Datain0.dat' | 输入数据文件路径 |
-
-**返回值**: 无
-
-**功能**:
-1. 设置分子量和基本参数
-2. 读取输入参数文件
-3. 计算派生量
-4. 调用 `geometry()` 和 `qhcrct()`
-5. 初始化未知数
-
-**调用示例**:
-```python
-from subroutines.initialization import eingab
-eingab('data/Datain0.dat')
-```
-
----
-
-### 3.2 geometry()
-
-```python
-def geometry()
-```
-
-**描述**: 计算气化炉几何结构
-
-**参数**: 无
-
-**返回值**: 无
-
-**功能**:
-- 设置8个不同直径的炉段
-- 计算每个格子的高度DELZ和位置H
-- 计算每个格子的截面积AT和周长AR
-
----
-
-### 3.3 qhcrct()
-
-```python
-def qhcrct()
-```
-
-**描述**: 热量校正计算
-
-**参数**: 无
-
-**返回值**: 无
-
-**功能**:
-- 计算挥发分释放的热量校正QH_CRCT
-- 计算热解后的焓值
-
----
-
-## 4. 气化炉主模块 (gasifier_main.py)
-
-### 4.1 gasifier()
-
-```python
-def gasifier(
-    xmass_func: Callable,
-    entfed_func: Callable,
-    entkol_func: Callable,
-    xk1_func: Callable,
-    xk2_func: Callable,
-    xk3_func: Callable,
-    xk4_func: Callable,
-    xk5_func: Callable,
-    xk6_func: Callable,
-    a1_func: Callable,
-    a2_func: Callable,
-    a3_func: Callable,
-    a4_func: Callable,
-    a5_func: Callable,
-    phi_func: Callable,
-    ri_func: Callable,
-    enthp_func: Callable,
-    wdkr_func: Callable | None = None
-) -> float
-```
-
-**描述**: GASIFIER主计算子程序，构建块三对角矩阵系统
-
-**参数**:
-| 参数名 | 类型 | 描述 |
-|--------|------|------|
-| `xmass_func` | Callable | XMASS子程序函数 |
-| `entfed_func` | Callable | ENTFED子程序函数 |
-| `entkol_func` | Callable | ENTKOL子程序函数 |
-| `xk1_func-xk6_func` | Callable | 气相反应速率函数 |
-| `a1_func-a5_func` | Callable | 碳反应速率函数 |
-| `phi_func` | Callable | PHI辅助函数 |
-| `ri_func` | Callable | RI总反应速率函数 |
-| `enthp_func` | Callable | ENTHP焓值计算函数 |
-| `wdkr_func` | Callable \| None | WDKR热传导系数函数 |
-
-**返回**: `sum_ri` (float): 总反应速率
-
-**调用示例**:
-```python
-from subroutines.gasifier_main import gasifier
-from functions.gas_reactions import xk1, xk2, xk3, xk4, xk5, xk6
-from functions.reaction_rates import A1, A2, A3, A4, A5, PHI, RI, ENTHP
-from subroutines.mass_flow import xmass
-from subroutines.output_results import entfed, entkol
-
-sum_ri = gasifier(
-    xmass_func=xmass,
-    entfed_func=entfed,
-    entkol_func=entkol,
-    xk1_func=xk1, xk2_func=xk2, xk3_func=xk3, xk4_func=xk4, xk5_func=xk5, xk6_func=xk6,
-    a1_func=A1, a2_func=A2, a3_func=A3, a4_func=A4, a5_func=A5,
-    phi_func=PHI, ri_func=RI,
-    enthp_func=ENTHP
-)
-```
-
----
-
-### 4.2 _calculate_dmat_for_cell()
-
-```python
-def _calculate_dmat_for_cell(
-    i: int,
-    xmass_func: Callable,
-    entfed_func: Callable,
-    entkol_func: Callable,
-    xk1_func: Callable,
-    xk2_func: Callable,
-    xk3_func: Callable,
-    xk4_func: Callable,
-    xk5_func: Callable,
-    xk6_func: Callable,
-    a1_func: Callable,
-    a2_func: Callable,
-    a3_func: Callable,
-    a4_func: Callable,
-    a5_func: Callable,
-    phi_func: Callable,
-    ri_func: Callable,
-    enthp_func: Callable,
-    wdkr_func: Callable | None = None
-) -> float
-```
-
-**描述**: 计算单个网格单元的DMAT（右端向量RHS）
-
-**参数**:
-| 参数名 | 类型 | 描述 |
-|--------|------|------|
-| `i` | int | 当前网格单元索引 |
-| 其他 | Callable | 各种物理计算函数 |
-
-**返回**: `rri` (float): 总反应速率RI(I)
-
----
-
-## 5. 质量流模块 (mass_flow.py)
-
-### 5.1 xmass()
-
-```python
-def xmass()
-```
-
-**描述**: 计算每个网格单元的固体质量、停留时间、颗粒速度和空隙率
-
-**参数**: 无
-
-**返回值**: 无
-
-**计算变量**:
-- `ROS[i]`: 固体密度 [kg/m³]
-- `ROG[i]`: 气体密度 [kg/m³]
-- `XMUG[i]`: 气体粘度 [Pa·s]
-- `TRZ[i]`: 停留时间 [s]（迭代计算）
-- `US[i]`: 颗粒速度 [m/s]
-- `XMS[i]`: 格子内固体质量 [kg]
-- `EPS[i]`: 空隙率 [-]
-
----
-
-## 6. 气相反应模块 (gas_reactions.py)
-
-### 6.1 xk1() - CO氧化反应
-
-```python
-def xk1(i: int) -> float
-```
-
-**描述**: CO + 1/2 O₂ → CO₂ 反应速率
-
-**参数**:
-| 参数名 | 类型 | 描述 |
-|--------|------|------|
-| `i` | int | 格子索引 (1-based) |
-
-**返回**: 反应速率 [kmol/s]
-
-**参考**: CEN KEFA AND ZHAO LI
-
----
-
-### 6.2 xk2() - H₂氧化反应
-
-```python
-def xk2(i: int) -> float
-```
-
-**描述**: H₂ + 1/2 O₂ → H₂O 反应速率
-
-**参考**: ZHAO LI AND CEN KEFA
-
----
-
-### 6.3 xk3() - 水煤气变换反应
-
-```python
-def xk3(i: int) -> float
-```
-
-**描述**: CO + H₂O → CO₂ + H₂ 反应速率
-
-**参考**: CEN KEFA AND ZHAO LI
-
----
-
-### 6.4 xk4() - 逆水煤气变换反应
-
-```python
-def xk4(i: int) -> float
-```
-
-**描述**: CO₂ + H₂ → CO + H₂O 反应速率
-
-**参考**: CEN KEFA (6.245E14), ZHAO LI (7.145E14)
-
----
-
-### 6.5 xk5() - 蒸汽重整反应
-
-```python
-def xk5(i: int) -> float
-```
-
-**描述**: CH₄ + H₂O → CO + 3H₂ 反应速率
-
-**参考**: WEN
-
----
-
-### 6.6 xk6() - CH₄氧化反应
-
-```python
-def xk6(i: int) -> float
-```
-
-**描述**: CH₄ + 2O₂ → CO₂ + 2H₂O 反应速率
-
-**参考**: CEN KEFA P320
-
----
-
-### 6.7 flucht() - 挥发分释放
-
-```python
-def flucht()
-```
-
-**描述**: 挥发分释放计算子程序
-
-**功能**:
-1. 初始化挥发分释放系数
-2. 根据煤的工业分析计算各挥发分组分
-3. 处理H和O元素的平衡
-4. 计算各格子中的挥发分释放速率
-
----
-
-## 7. 反应速率模块 (reaction_rates.py)
-
-### 7.1 A1() - 碳-水蒸气反应
-
-```python
-def A1(i: int) -> float
-```
-
-**描述**: 计算碳与水蒸气反应速率 C + H₂O → CO + H₂
-
-**参数**:
-| 参数名 | 类型 | 描述 |
-|--------|------|------|
-| `i` | int | 格子索引 (1-based) |
-
-**返回**: 反应速率 [kmol/s]
-
----
-
-### 7.2 A2() - 甲烷化反应
-
-```python
-def A2(i: int) -> float
-```
-
-**描述**: 计算碳与氢气反应速率 C + 2H₂ → CH₄
-
----
-
-### 7.3 A3() - 燃烧反应
-
-```python
-def A3(i: int) -> float
-```
-
-**描述**: 计算碳与氧气反应速率 C + O₂ → CO/CO₂
-
----
-
-### 7.4 A4() - Boudouard反应
-
-```python
-def A4(i: int) -> float
-```
-
-**描述**: 计算碳与二氧化碳反应速率 C + CO₂ → 2CO
-
----
-
-### 7.5 A5() - 催化水煤气变换
-
-```python
-def A5(i: int) -> float
-```
-
-**描述**: 计算催化水煤气变换反应速率 CO + H₂O ⇌ CO₂ + H₂
-
----
-
-### 7.6 RI() - 总碳消耗速率
-
-```python
-def RI(i: int) -> float
-```
-
-**描述**: 计算总碳消耗速率
-
-**公式**: RI = (A1 + A2 + A3 + A4) × 12.0 [kg/s]
-
----
-
-### 7.7 PHI() - 结构参数
-
-```python
-def PHI(i: int) -> float
-```
-
-**描述**: 计算机械因子/结构参数 (Mechanical Factor)
-
-**参考**: Wen模型
-
----
-
-### 7.8 TPAR() - 颗粒温度
-
-```python
-def TPAR(i: int) -> float
-```
-
-**描述**: 计算颗粒温度
-
-**公式**: TP = T[i] + FEMF[1,i]/FEM[i] × 66.0e3 × PWK/(RAG×T[i])
-
----
-
-### 7.9 XKC系列 - 扩散系数
-
-```python
-def XKC_O2(i: int) -> float   # O₂扩散系数
-def XKC_H2O(i: int) -> float  # H₂O扩散系数
-def XKC_CO2(i: int) -> float  # CO₂扩散系数
-def XKC_H2(i: int) -> float   # H₂扩散系数
-```
-
-**描述**: 计算各种气体与碳反应的扩散系数
-
-**单位**: kmol/(m²·Pa·s)
-
----
-
-### 7.10 ENTHP() - 焓值计算
-
-```python
-def ENTHP(J: int, IAGG: str, TEMP: float, PP: float) -> float
-```
-
-**描述**: 计算组分J在温度TEMP和压力PP下的焓值
-
-**参数**:
-| 参数名 | 类型 | 描述 |
-|--------|------|------|
-| `J` | int | 组分编号 (1-10) |
-| `IAGG` | str | 聚集态 ('G'气态, 'S'固态) |
-| `TEMP` | float | 温度 [K] |
-| `PP` | float | 压力 [Pa] |
-
-**返回**: 焓值 [J/kmol]
-
----
-
-## 8. 数学工具模块 (math_utils.py)
-
-### 8.1 newtra()
-
-```python
-def newtra(omega: float = 1.0)
-```
-
-**描述**: 牛顿迭代
-
-**参数**:
-| 参数名 | 类型 | 默认值 | 描述 |
-|--------|------|--------|------|
-| `omega` | float | 1.0 | 松弛因子 (0 < omega <= 1) |
-
----
-
-### 8.2 blktrd()
-
-```python
-def blktrd(nmat: int, nst: int) -> int
-```
-
-**描述**: 块三对角矩阵求解器
-
-**参数**:
-| 参数名 | 类型 | 描述 |
-|--------|------|------|
-| `nmat` | int | 矩阵大小 |
-| `nst` | int | 格子数 |
-
-**返回**: 错误代码 (0=成功)
-
----
-
-### 8.3 kolon1()
-
-```python
-def kolon1(omega: float = 1.0)
-```
-
-**描述**: 更新求解变量，检查收敛性
-
-**参数**:
-| 参数名 | 类型 | 默认值 | 描述 |
-|--------|------|--------|------|
-| `omega` | float | 1.0 | 松弛因子 |
-
-**功能**:
-1. 更新组分流量FEMF
-2. 更新碳质量流量WE
-3. 更新碳转化率X
-4. 更新温度T
-5. 检查各变量的收敛性
-
----
-
-### 8.4 gausll()
-
-```python
-def gausll(n: int, ns: int, a: ndarray) -> tuple[int, ndarray]
-```
-
-**描述**: 高斯消元法求解线性方程组
-
-**参数**:
-| 参数名 | 类型 | 描述 |
-|--------|------|------|
-| `n` | int | 系数矩阵的维数 |
-| `ns` | int | 右侧矩阵的列数 |
-| `a` | ndarray | 增广矩阵 (n × (n+ns)) |
-
-**返回**: `(nfehl, a)`
-- `nfehl` (int): 错误代码 (0=成功)
-- `a` (ndarray): 求解后的矩阵
-
----
-
-### 8.5 矩阵运算函数
-
-```python
-def matadd(nf: int, ng: int, matin1: ndarray, nan1x: int,
-           matin2: ndarray, nan2x: int, ndi1: int, ndi2: int) -> ndarray
-
-def matsub(nf: int, ng: int, matin1: ndarray, nan1x: int,
-           matin2: ndarray, nan2x: int, ndi1: int, ndi2: int) -> ndarray
-
-def matmult(nf: int, ng: int, matin1: ndarray, nan1x: int,
-            matin2: ndarray, nan2x: int, ndi1: int, ndi2: int) -> ndarray
-
-def matdiv(nf: int, ng: int, matin1: ndarray, nan1x: int,
-           matin2: ndarray, nan2x: int, ndi1: int, ndi2: int) -> tuple[int, ndarray]
-```
-
-**描述**: 矩阵加、减、乘、除运算
-
----
-
-## 附录：常量参考表
-
-### 气体组分分子量
-
-| 编号 | 组分 | 分子量 [kg/kmol] |
-|------|------|------------------|
-| 1 | O₂ | 32.0 |
-| 2 | CH₄ | 16.0 |
-| 3 | CO | 28.0 |
-| 4 | CO₂ | 44.0 |
-| 5 | H₂S | 34.0 |
-| 6 | H₂ | 2.0 |
-| 7 | N₂ | 28.0 |
-| 8 | H₂O | 18.0 |
-| 9 | C (固体) | 12.0 |
-| 10 | ASH (固体) | 60.0 |
-
-### 收敛阈值
-
-| 变量 | 阈值 | 描述 |
-|------|------|------|
-| `SKONFE` | 1.0e-4 | 气体组分收敛阈值 |
-| `SKONWE` | 1.0e-4 | 固体质量流收敛阈值 |
-| `SKONX` | 1.0e-4 | 碳转化率收敛阈值 |
-| `SKONT` | 1.0e-4 | 温度收敛阈值 |
-
----
-
-*最后更新: 2026-03-20*
+用户改参后旧结果仍可能保留显示，需要标记为上次结果；未达目标的结果只作诊断。前端缺数值显示破折号，不用默认零或示例结果填补。

@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-TEXACO气化炉CFD模拟 - 结果输出和焓计算子程序
+TEXACO气化炉一维稳态模拟 - 结果输出和焓计算子程序
 对应Fortran文件: Wg8.for
 
 包含以下子程序:
 - KOLERG: 主输出子程序
-- ENTKOL: 计算煤入口焓
+- ENTKOL: 计算各格气/固组分焓和温度导数
 - ENTFED: 计算进料焓
 - KONTR: 质量/能量平衡检查
 - HCRCT: 热校正
@@ -66,7 +66,7 @@ def RI(i):
     对应Fortran中的RI函数
     
     参数:
-        i: 格子索引 (0-based)
+        i: 格子索引 (1-based，0号槽闲置)
     
     返回:
         反应速率 [kg/s]
@@ -298,7 +298,10 @@ def kolerg(output_file=None, write_restart=True):
 
 
 def write_start(outfile):
-    """保存已接受的求解状态；目标温度搜索的中间候选不得覆盖重启文件。"""
+    """写当前状态，是否已接受由调用者控制；本函数不检查KONVER。
+
+    设计搜索仅在全部目标通过后调用；普通正算迭代上限分支仍调用。
+    该历史行为见文档的已知限制，不能把START存在当作收敛证明。"""
     # 保存结果到START.DAT文件
     start_dat_path = os.path.join(os.getcwd(), 'START.DAT')
     try:
@@ -326,7 +329,7 @@ def write_start(outfile):
 
 def entkol(cells=None, cache=None):
     """
-    计算煤入口焓 - 初始化各格子各组分的焓值和温度导数
+    按各格当前T/P刷新气体摩尔焓、固体比焓和温度导数（不是煤入口焓）。
     
     对应Fortran: SUBROUTINE ENTKOL
     
@@ -439,7 +442,7 @@ def tpar(i):
     计算焦炭颗粒温度 (简化模型)
     
     参数:
-        i: 格子索引 (0-based)
+        i: 格子索引 (1-based，0号槽闲置)
     
     返回:
         颗粒温度 [K]
@@ -469,7 +472,7 @@ def tpar1(i):
     计算焦炭颗粒温度 (详细模型)
     
     参数:
-        i: 格子索引 (0-based)
+        i: 格子索引 (1-based，0号槽闲置)
     
     返回:
         颗粒温度 [K]

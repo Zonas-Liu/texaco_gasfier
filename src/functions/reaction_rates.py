@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-TEXACO气化炉CFD模拟 - 反应速率和热力学性质计算模块
+TEXACO气化炉一维稳态模拟 - 反应速率和热力学性质计算模块
 对应Fortran文件: Wg7.for
 
 本模块包含以下功能:
@@ -555,7 +555,7 @@ def CMP(A: float, B: float, C: float, D: float, T: float, T0: float) -> float:
     """
     计算热容积分 (用于气体组分)
     
-    积分公式: ∫(A + B×10^-3×T + C×10^5/T^2 + D×10^-6×T^3) dT
+    积分公式: ∫(A + B×10^-3×T + C×10^5/T^2 + D×10^-6×T^2) dT
     单位: kJ/kmol
     
     Args:
@@ -579,7 +579,7 @@ def CMP_SOLID(A: float, B: float, C: float, D: float, T: float, T0: float) -> fl
     """
     计算热容积分 (与Fortran CMP函数一致)
     
-    Fortran热容公式: Cp = A + B*1e-3*T + C*1e5/T^2 + D*1e-6*T^3
+    Fortran热容公式: Cp = A + B*1e-3*T + C*1e5/T^2 + D*1e-6*T^2
     积分公式: 4.186 * (A*(T-T0) + B*0.05*(T^2*0.01-T0^2*0.01) 
                       - C*(1e5/T-1e5/T0) + D/3*((0.01*T)^3-(0.01*T0)^3))
     单位: kJ/kmol (与Fortran一致)
@@ -610,7 +610,8 @@ def CMPS(A: float, B: float, C: float, D: float, T: float, T0: float) -> float:
     """
     计算热容积分 (H2S专用)
     
-    热容公式: Cp = A + B×T + C×T^2 + D×T^3
+    实际返回AΔT+BΔ(T²)+CΔ(T³)+DΔ(T⁴)，系数按积分多项式使用。
+    其导数为A+2BT+3CT²+4DT³；历史系数物理来源仍待核验。
     单位: kJ/kmol
     
     Args:
@@ -634,7 +635,7 @@ def CMPT(A: float, B: float, C: float, D: float, T: float, T0: float) -> float:
     """
     计算热容除以温度的积分 (用于气体组分)
     
-    积分公式: ∫(A + B×10^-3×T + C×10^5/T^2 + D×10^-6×T^3)/T dT
+    积分公式: ∫(A + B×10^-3×T + C×10^5/T^2 + D×10^-6×T^2)/T dT
     单位: kJ/(kmol·K)
     
     Args:

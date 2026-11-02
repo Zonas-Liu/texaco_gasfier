@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-TEXACO气化炉CFD模拟 - 数学工具模块
+TEXACO气化炉一维稳态模拟 - 数学工具模块
 对应Fortran的Wg9.for
 """
 import numpy as np
@@ -487,7 +487,7 @@ def kolon1(omega=1.0):
         if common.WE[i] <= 0.0:
             common.WE[i] = 1.0e-20
     
-    # 检查碳转化率收?
+    # 检查固体碳质量分数X的原始修正量
     sumx = 0.0
     ng1 = common.NSGP + 1
     for i in range(common.NZEL1, common.NZEL2 + 1):
@@ -496,7 +496,7 @@ def kolon1(omega=1.0):
     if sumx > common.SKONX:
         common.KONVER = 1
     
-    # 更新碳转化率（带松弛因子）
+    # 更新固体碳质量分数X（带松弛因子）
     for i in range(common.NZEL1, common.NZEL2 + 1):
         if abs(common.DMAT[common.NSGP1, i]) > dxmax:
             common.X[i] = common.X[i] + omega * common.DMAT[common.NSGP1, i] * dxmax / abs(common.DMAT[common.NSGP1, i])
@@ -512,7 +512,7 @@ def kolon1(omega=1.0):
     sumt = 0.0
     if common.KTRLT == 1:
         # FIXED: 使用NVWS而不是ng2作为温度方程索引
-        # ng2 = NVE + 2 = 10 对应NSGP1 (碳转化率)
+        # ng2 = NVE + 2 = 10 对应NSGP1 (固体碳质量分数)
         # NVWS = 11 才是能量方程 (温度)
         nvws_idx = common.NVWS
         for i in range(common.NZEL1, common.NZEL2 + 1):

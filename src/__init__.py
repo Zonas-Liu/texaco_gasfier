@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-TEXACO气化炉CFD模拟 - Python版本
+TEXACO气化炉一维稳态模拟 - Python版本
 
 对应Fortran版本的Texaco气化炉CFD模拟程序
 """

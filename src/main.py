@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-TEXACO气化炉CFD模拟 - 主程序 (残差输出版)
+TEXACO/晋华炉一维稳态模型 - 主程序（牛顿修正量监测）
 对应Fortran主程序: PROGRAM TEXACO_GASIFIER
 """
 
@@ -22,8 +22,8 @@ from subroutines.output_results import entfed, entkol
 
 def calculate_residuals():
     """
-    计算当前迭代的残差 (SUMFE, SUMWE, SUMX, SUMT)
-    对应Fortran NEWTRA中的残差计算
+    汇总线性求解后原始牛顿修正量的绝对值和，不是守恒残差。
+    对应Fortran NEWTRA的收敛监测；调用时DMAT已从-R变成Δu。
     
     注意: DMAT使用1-based索引（与Fortran兼容）
     DMAT[1:9,:] 对应气体组分方程 (O2, CH4, CO, CO2, H2S, H2, N2, H2O)
@@ -40,7 +40,7 @@ def calculate_residuals():
     for i in range(common.NZEL1, common.NZEL2 + 1):
         sumwe += abs(common.DMAT[common.NSGP, i])
     
-    # SUMX: 碳转化率残差 (Fortran NSGP1 = 10)
+    # SUMX: 固体碳质量分数修正量之和 (Fortran NSGP1 = 10)
     sumx = 0.0
     for i in range(common.NZEL1, common.NZEL2 + 1):
         sumx += abs(common.DMAT[common.NSGP1, i])
@@ -102,7 +102,7 @@ def print_matrices_iter0():
 
 def _run(output_file, data_path):
     """
-    TEXACO气化炉CFD模拟主程序 (残差输出版)
+    TEXACO气化炉一维稳态模拟主程序 (残差输出版)
     """
     # 打开输出文件 (对应Fortran: OPEN (UNIT=1,FILE='GASTEST.DAT',STATUS='UNKNOWN'))
     # 文件生命周期由 main() 管理
@@ -173,10 +173,10 @@ def _iterate(output_file, trial_label=None):
         omega = 1.0  # Match Fortran (no relaxation)
         newtra(omega=omega)
         
-        # 计算残差
+        # 统计线性求解得到的原始牛顿修正量
         sumfe, sumwe, sumx, sumt = calculate_residuals()
         
-        # 写入当前迭代的残差到GASTEST.DAT
+        # 写入本次修正量统计；保留历史输出表头以兼容解析
         output_file.write(f"{common.ITERAT:>6} {common.KONVER:>8} {sumfe:>14.6e} {sumwe:>14.6e} {sumx:>14.6e} {sumt:>14.6e}\n")
         
         # 同时输出到屏幕

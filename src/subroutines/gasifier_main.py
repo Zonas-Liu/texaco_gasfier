@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-TEXACO气化炉CFD模拟 - GASIFIER子程序Python实现
+TEXACO气化炉一维稳态模拟 - GASIFIER子程序Python实现
 对应Fortran文件: Wg3.for
 
 功能: 主计算子程序，构建块三对角矩阵系统的系数矩阵(AMAT, BMAT, CMAT)和右端向量(DMAT)
@@ -28,7 +28,7 @@ def _calculate_dmat_for_cell(
     wdkr_func=None
 ):
     """
-    计算单个网格单元的DMAT（右端向量RHS）
+    计算单格缩放后的守恒残差R，暂存DMAT；gasifier末尾取负成为线性RHS。
     
     对应Fortran中标签53开始的DMAT计算部分
     提取为辅助函数以便在数值微分中重复调用
@@ -308,7 +308,7 @@ def _calculate_dmat_for_cell(
     common.DMAT[nsgp, i] -= common.WE[i] + rri
     
     # ---------------------------------------------------------
-    # DMAT(NSGP1,I): 碳转化率平衡 X(I) (单位: kg/s)
+    # DMAT(NSGP1,I): 残碳质量平衡，未知量X为固体碳质量分数 (方程单位: kg/s)
     # ---------------------------------------------------------
     nsgp1 = common.NSGP1
     common.DMAT[nsgp1, i] = common.WFC[i]
@@ -551,8 +551,6 @@ def gasifier(
             # 计算DMAT - 对应Fortran标签53
             # 每次扰动后都需要重新计算DMAT
             
-            pass
-            
             rri = _calculate_dmat_for_cell(
                 i,
                 local_xmass, entfed_func, local_entkol,
@@ -595,8 +593,6 @@ def gasifier(
                             common.T[i - 1] -= delta
                 
                 # 计算BMAT或AMAT元素 - 对应Fortran标签70
-                pass
-                pass
                 if kk <= 0:
                     # 计算BMAT (对角块)
                     k_col = k_state

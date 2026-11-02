@@ -11,21 +11,21 @@ TEXACO（德士古）水煤浆气化炉 Fortran 程序的 Python 移植版（1D 
 
 ## 代码结构要点
 - `src/main.py`：主迭代循环（对应 Wg1.for）
-- `src/common/common_data.py`：全局数据单例（Fortran COMMON 块）。数组 1-based 索引，索引 0 闲置
+- `src/common/common_data.py`：全局数据单例（Fortran COMMON 块）。主要求解数组为1-based；XMOL为0-based表，部分源项0号槽有历史用途
 - `src/subroutines/initialization.py`：输入解析（EINGAB）、几何（GEOMETRY）、热校正（QHCRCT）
 - `src/subroutines/gasifier_main.py`：核心——DMAT/AMAT/BMAT/CMAT 组装，数值微分求雅可比
 - `src/subroutines/mass_flow.py`：固体质量流（XMASS）
 - `src/subroutines/output_results.py`：结果输出（KOLERG → GASTEST.DAT + START.DAT）
 - `src/functions/gas_reactions.py`：气相反应 XK1-XK6 + 挥发分释放（FLUCHT）
 - `src/functions/reaction_rates.py`：碳反应 A1-A5、ENTHP 焓值（含生成焓）、WDKR 辐射换热系数
-- `src/functions/steam_props.py`：（晋华炉新增）饱和蒸汽物性关联式
+- `src/functions/steam_props.py`：（晋华炉新增）水侧IAPWS-IF97接口及产汽换算
 - `numeric_test/`：Python vs Fortran 数值对比验证
 
 ## 关键设计约束
 - **ENTHP 焓值含标准生成焓**（如 CO: HMT=-110594.12 kJ/kmol，ENTHP 返回时乘 1000 转为 J/kmol），因此通过 DMAT 组分源项改变
   FEMF 时，反应热自动计入能量平衡，无需额外处理
 - DMAT 的雅可比通过数值微分自动获得（通常扰动 0.0001；KMODEL=1 的残碳 X 使用下述相对步长）：新增任何连续的源项/汇项都会被
-  自动线性化，无需手写偏导
+  自动线性化；但上游固体/能量偏导存在解析覆盖，新增上游依赖必须核对覆盖项
 - 挥发分与煤浆进料分布在第 1 格；OX_PART<1 时第 N2FED=7 格可有二次氧气进料，RSC 段无进料
 - 输入文件 `data/Datain0.dat` 按行解析；新增参数追加在末尾新行，缺失时用默认值（向后兼容）
 - GUI（app.py / web_backend）按固定行数读写 Datain0.dat，新增行需注意保留
@@ -42,7 +42,7 @@ TEXACO（德士古）水煤浆气化炉 Fortran 程序的 Python 移植版（1D 
   数组尺寸 NZDIM=61（支持 1≤N_RSC≤30）。KMODEL=0 时退化为原 TEXACO（NZRE=30）
 - **水冷壁**：DMAT 能量行热汇 QKW[i]=WDKR(T,TW_i)·AR·DELZ·(T−TW_i)，
   燃烧室段 TW_i=TW_WALL（渣层表面有效温度），RSC 段 TW_i=TW_RSC。
-  回收热量 → 蒸汽产量 = Q/(h″(P_DRUM) − h_fw(T_FW))
+  回收热量 → 蒸汽产量 = Q/[1000·(h″(P_DRUM) − h_fw(T_FW,P_DRUM))]，Q为W、焓为kJ/kg，结果kg/s
 - **QLOSS 经验热损失项**仅作用于燃烧室段（i ≤ NZRC）
 - **RSC 平衡反应**（部分平衡/松弛源项法，仅 i > NZRC）：
   - 水煤气变换 WGS：CO+H2O↔CO2+H2，K_WGS(T)=exp(4577.8/T − 4.33)
@@ -139,3 +139,11 @@ TEXACO（德士古）水煤浆气化炉 Fortran 程序的 Python 移植版（1D 
 - 典型新基准：64次收敛，燃烧室1232.374℃、废锅791.480℃、水冷壁2.157 t/h、废锅30.465 t/h；旧756.86℃与24.32 t/h已失效。46项单元回归通过。
 - XVM=0源项传参及H2S耗氢已修正，但全炉默认100次仍未收敛，仅保留为可选诊断；KCHECK辅助模式、独立能量闭合和全操作范围不在本次验收范围。
 - 当前证据见 `docs/ELEMENT_BALANCE_FIX.md`、`docs/element_balance_fixed_results.json`；常数来源、经验近似及适用边界见 `docs/PHYSICAL_CONSTANTS.md`。原缺陷历史报告保留。
+
+## 文档与源码整理（2026-11-02）
+- 当前详细说明入口为 `docs/README.md` 和 `docs/code_reference/README.md`，共10章，按实际实现说明状态、守恒、动力学、物性、求解、协议及验收；旧TODO/问题登记在 `docs/archive/`。
+- `scripts/check_docs.py --write-index` 使用AST生成第10章符号索引；不导入界面或运行模型。`scripts/check_docs.py` 检查本地链接、行号、围栏、输入参数行序及索引是否过期。公式与适用边界人工维护。
+- AR为周长；WE为总固体流；common.X为固体碳质量分数；输出X(%)是FOC指标，不能混同；SUM*为限步前牛顿修正量绝对值和。SKONFE/WE/X/T单位依次为kmol/s、kg/s、无量纲、K。
+- 煤元素/灰/煤内水采用同一输入分析基准，不自动换干基或归一化；BSMS含ELH2O指定的煤内水，BSWAF才是无水无灰煤流。
+- 尚未修订的问题见 `docs/ISSUE_REGISTRY.md`：QHCRCT量纲、CO2进料焓槽、气侧历史物性、RSC网格依赖、颗粒闭合、普通正算失败仍可能写START等。不得写成已修复或经工程验证。
+- 注释/文档变更保留数值公式；物理修订需单独提供元素与能量依据、完整求解和两模式兼容决策。

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-TEXACO气化炉CFD模拟 - 气相反应速率模块
+TEXACO气化炉一维稳态模拟 - 气相反应速率模块
 对应Fortran的Wg6.for
 
 包含以下气相反应速率计算:

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-TEXACO气化炉CFD模拟 - Common块Python实现
+TEXACO/晋华炉一维稳态模型 - Common块Python实现
 对应Fortran中的Common.00, Common.01, Common.02, Common.03
 """
 import numpy as np
@@ -115,8 +115,8 @@ class CommonData:
         self.H = np.zeros(self.NZDIM)          # 格子高度位置 [m] (1-based in Fortran)
         self.DELZ = np.zeros(self.NZDIM)       # 格子高度 [m]
         self.AT = np.zeros(self.NZDIM)         # 格子截面积 [m^2]
-        self.AR = np.zeros(self.NZDIM)         # 格子半径 [m]
-        self.HREAK = 0.0               # 炉总高度 [m]
+        self.AR = np.zeros(self.NZDIM)         # 格子壁面周长πD [m]，不是半径
+        self.HREAK = 0.0               # 燃烧室总高度，不含RSC [m]
         self.DIA1 = 0.0                # 炉直径 [m]
         self.DIA2 = 0.0
         self.DIA3 = 0.0
@@ -131,7 +131,7 @@ class CommonData:
     def init_coal(self):
         """Common.01 - 煤性质和操作参数"""
         # 煤性质 (默认值，实际从DAT文件读取)
-        self.HU = 25900                # 热值 [J/kg]
+        self.HU = 25900                # 输入煤低位热值 [kJ/kg]，与煤分析基准配套
         self.XVM = 0.28                # 挥发分含量
         self.ELC = 0.6802              # C元素含量
         self.ELH = 0.0404              # H元素含量
@@ -143,12 +143,12 @@ class CommonData:
         
         # 进料参数 (默认值，实际从DAT文件读取)
         self.BSLURRY = 15.98           # 水煤浆流量 [kg/s]
-        self.BSMS = 0.0                # 干煤流量 [kg/s]
+        self.BSMS = 0.0                # 输入煤流量（含ELH2O所指煤内水）[kg/s]
         self.RATIO_COAL = 0.59         # 煤浆浓度
         self.DP = 100.0e-6             # 煤颗粒直径 [m]
         self.RO_SLURRY = 1260.0        # 煤浆密度 [kg/m^3]
         self.ROS0 = 1260.0             # 煤密度 [kg/m^3]
-        self.BSWAF = 0.0               # 干煤+灰分流量 [kg/s]
+        self.BSWAF = 0.0               # 无水无灰煤流量 [kg/s]
         
         # 氧气参数 (默认值，实际从DAT文件读取)
         self.FOX = 0.0                 # 氧气体积流量 [Nm^3/s]
@@ -156,7 +156,7 @@ class CommonData:
         self.PURE_O2 = 0.996           # 氧气纯度
         self.OX_PART = 1.0             # 氧气比例
         self.RATIO_CO2 = 0.0           # CO2比例
-        self.FOXY = 1.06               # 氧气过剩系数
+        self.FOXY = 1.06               # 纯氧/无水无灰煤质量比，不是过量氧系数
         
         # 密度和粘度
         self.ROS = np.zeros(self.NZDIM)        # 固体密度 [kg/m^3]
@@ -181,11 +181,11 @@ class CommonData:
     
     def init_unknowns(self):
         """Common.02 - 求解变量"""
-        # 未知数 (NGAS=8, NZWS=30)
+        # 8个气体未知量；有效格数由NZRE控制，容量NZDIM=61
         self.FEMF = np.zeros((9, self.NZDIM))     # 各组分摩尔流量 [kmol/s] (1-based)
-        self.X = np.zeros(self.NZDIM)              # 碳转化率
+        self.X = np.zeros(self.NZDIM)              # 固体中碳质量分数，非碳转化率
         self.T = np.zeros(self.NZDIM)              # 温度 [K]
-        self.WE = np.zeros(self.NZDIM)             # 碳质量流量 [kg/s]
+        self.WE = np.zeros(self.NZDIM)             # 总固体（残碳+灰）质量流量 [kg/s]
         
         # 流动参数
         self.FEM = np.zeros(self.NZDIM)            # 总摩尔流量 [kmol/s]
@@ -251,7 +251,7 @@ class CommonData:
         self.HENTH = np.zeros((16, self.NZDIM))    # 组分焓值
         self.DHDT = np.zeros((16, self.NZDIM))     # 焓值温度导数
         self.FEEDH = np.zeros((4, self.NZDIM))     # 进料焓值
-        self.FEDPH = np.zeros((3, self.NZDIM))     # 进料压力相关
+        self.FEDPH = np.zeros((3, self.NZDIM))     # 进料碳/灰比焓 [J/kg]
         self.HFH2O = np.zeros(self.NZDIM)          # H2O焓值
         
         self.QLOSS = 0.02                  # 热损失系数
@@ -286,8 +286,7 @@ class CommonData:
     
     def init_matrix(self):
         """Common.03 - 矩阵"""
-        # 注意: Fortran是AMAT(11,11,30), Python用(12,12,31)来保持1-based索引
-        # 但使用(13,13,32)来避免某些情况下的越界
+        # 有效方程/变量1..11、格子1..NZRE；保留0号及额外槽位，容量NZDIM=61。
         self.AMAT = np.zeros((13, 13, self.NZDIM))
         self.BMAT = np.zeros((13, 13, self.NZDIM))
         self.CMAT = np.zeros((13, 13, self.NZDIM))

@@ -1,772 +1,224 @@
-# TEXACO Python版本 - 数学物理模型详解
-
-本文档详细说明TEXACO气化炉模拟程序中涉及的所有数学和物理方程，包含Fortran和Python代码对照。
-
----
-
-## 目录
-
-1. [质量平衡方程](#1-质量平衡方程)
-2. [能量平衡方程](#2-能量平衡方程)
-3. [气相反应动力学](#3-气相反应动力学)
-4. [异相反应动力学](#4-异相反应动力学)
-5. [扩散与传质模型](#5-扩散与传质模型)
-6. [热力学性质计算](#6-热力学性质计算)
+# 3. 控制体、进料与守恒方程
 
----
+[手册首页](README.md) · [反应速率](06_REACTION_KINETICS.md) · [能量与物性细节](07_THERMODYNAMICS.md)
 
-## 1. 质量平衡方程
-
-### 1.1 气体组分质量平衡
-
-对于每个网格单元 $i$，气体组分 $j$ 的质量平衡方程为：
-
-$$\frac{dF_j}{dz} = R_j^{in} - R_j^{out} + R_j^{reaction} + R_j^{devol}$$
-
-其中：
-- $F_j$：组分 $j$ 的摩尔流量 [kmol/s]
-- $R_j^{in}$：从上游单元流入的速率 [kmol/s]
-- $R_j^{out}$：流出到下游单元的速率 [kmol/s]
-- $R_j^{reaction}$：化学反应生成/消耗的速率 [kmol/s]
-- $R_j^{devol}$：挥发分释放的速率 [kmol/s]
-
-#### 1.1.1 O₂ 平衡方程 (DMAT[1,i])
-
-**物理意义**: O₂的来源包括挥发分释放、进料和上游流入；消耗包括流出和各种反应消耗。
-
-**数学表达式**:
-
-$$DMAT_{1,i} = RO2_i + FEEDO2_i + FEMF_{1,i-1} - FEMF_{1,i} - \frac{XK1}{2} - \frac{XK2}{2} - 2XK6 - \frac{A3}{\Phi}$$
-
-**Python代码**:
-```python
-def _calculate_dmat_for_cell(i, ...):
-    # O2平衡方程
-    common.DMAT[1, i] = common.RO2[i] + common.FEEDO2[i]
-    if i != common.NZRA:
-        common.DMAT[1, i] += common.FEMF[1, i - 1]  # 上游流入
-    common.DMAT[1, i] -= common.FEMF[1, i]  # 流出
-    
-    # 气相反应消耗
-    common.DMAT[1, i] -= rxk1 / 2.0  # CO氧化消耗O2
-    common.DMAT[1, i] -= rxk2 / 2.0  # H2氧化消耗O2
-    common.DMAT[1, i] -= rxk6 * 2.0  # CH4氧化消耗O2
-    
-    # 碳反应消耗O2
-    common.DMAT[1, i] -= ra3 / rphi  # C+O2反应消耗
-```
-
-**Fortran代码**:
-```fortran
-      DMAT(1,I)=RO2(I)+FEEDO2(I)
-      IF (I.NE.NZRA) THEN 
-        DMAT(1,I)=DMAT(1,I)+FEMF(1,I-1)
-      ENDIF
-      DMAT(1,I)=DMAT(1,I)-FEMF(1,I)
-      DMAT(1,I)=DMAT(1,I)-RXK1/2.0-RXK2/2.0-RXK6*2.0-RA3/RPHI
-```
-
----
-
-#### 1.1.2 CH₄ 平衡方程 (DMAT[2,i])
-
-**物理意义**: CH₄的来源包括挥发分释放和甲烷化反应；消耗包括流出和氧化反应。
-
-**数学表达式**:
-
-$$DMAT_{2,i} = RVCH4_i + KCHECK \cdot RVCH4_i + FEMF_{2,i-1} - FEMF_{2,i} - XK5 - XK6 + A2$$
-
-**Python代码**:
-```python
-    # CH4平衡方程
-    common.DMAT[2, i] = common.RVCH4[i] + common.KCHECK * common.RVCH4[i]
-    if i != common.NZRA:
-        common.DMAT[2, i] += common.FEMF[2, i - 1]
-    common.DMAT[2, i] -= common.FEMF[2, i]
-    
-    # 气相反应消耗CH4
-    common.DMAT[2, i] -= rxk5  # 蒸汽重整消耗
-    common.DMAT[2, i] -= rxk6  # 氧化消耗
-    
-    # 碳反应产生CH4
-    common.DMAT[2, i] += ra2   # 甲烷化反应产生
-```
-
-**Fortran代码**:
-```fortran
-      DMAT(2,I)=RVCH4(I)+KCHECK*RVCH4(I)
-      IF (I.NE.NZRA) THEN 
-        DMAT(2,I)=DMAT(2,I)+FEMF(2,I-1)
-      ENDIF
-      DMAT(2,I)=DMAT(2,I)-FEMF(2,I)-RXK5-RXK6+RA2
-```
-
----
-
-#### 1.1.3 CO 平衡方程 (DMAT[3,i])
-
-**物理意义**: CO的来源包括挥发分释放、水煤气反应、Boudouard反应等；消耗包括流出和氧化反应。
+本章给出**正常入口KCHECK=0、KTRLR=1、KTRLT=1下实际组装的方程**。公式由[source](../../src/subroutines/gasifier_main.py)逐项整理；参数的实验适用范围不由这些代数式自动保证。
 
-**数学表达式**:
+## 3.1 假设、控制体与未知量
 
-$$DMAT_{3,i} = RCO_i + KCHECK \cdot RCO_i + FEMF_{3,i-1} - FEMF_{3,i} - XK1 - XK3 + XK4 + XK5 + A1 + A3(2-\frac{2}{\Phi}) + 2A4 - A5$$
+- 稳态轴向控制体，忽略径向分布、轴向返混及三维动量；气体仅从上游进入当前格。
+- 全炉给定操作压力P=PWK；没有求压降、喷嘴动量或激冷洗涤段。
+- 气体8组分，固体用残碳与惰性灰两部分表示；没有独立焦油输运未知量。
+- 每格一个主温度T用于气体和固体焓流；速率中的颗粒温度TP另按经验增温估算，没有单独颗粒能量未知量。
+- 水冷壁与RSC通过给定有效表面温度移出热量；水侧只接受热量，不向气侧加入产汽水。
 
-**Python代码**:
-```python
-    # CO平衡方程
-    common.DMAT[3, i] = common.RCO[i] + common.KCHECK * common.RCO[i]
-    if i != common.NZRA:
-        common.DMAT[3, i] += common.FEMF[3, i - 1]
-    common.DMAT[3, i] -= common.FEMF[3, i]
-    
-    # 气相反应
-    common.DMAT[3, i] -= rxk1  # CO氧化消耗
-    common.DMAT[3, i] -= rxk3  # 水煤气变换消耗
-    common.DMAT[3, i] += rxk4  # 逆水煤气变换产生
-    common.DMAT[3, i] += rxk5  # 蒸汽重整产生
-    
-    # 碳反应
-    common.DMAT[3, i] += ra1   # C+H2O产生CO
-    common.DMAT[3, i] += ra3 * (2.0 - 2.0 / rphi)  # C+O2产生CO
-    common.DMAT[3, i] += ra4 * 2.0  # C+CO2产生CO
-    common.DMAT[3, i] -= ra5   # 催化水煤气消耗
-```
-
----
-
-### 1.2 固体质量平衡
-
-#### 1.2.1 固体总质量平衡 (DMAT[NSGP,i])
-
-**物理意义**: 固体（碳+灰分）的质量平衡。
-
-**数学表达式**:
-
-$$DMAT_{NSGP,i} = WFC_i + WFA_i + KCHECK \cdot RVTAR_i \cdot XMTAR + WE_{i-1} - WE_i - RI_i$$
-
-其中：
-- $NSGP = NVE + 1 = 9$（气体组分数8 + 1）
-- $WFC_i$：固定碳进料 [kg/s]
-- $WFA_i$：灰分进料 [kg/s]
-- $WE_i$：碳质量流量 [kg/s]
-- $RI_i$：总碳消耗速率 [kg/s]
-
-**Python代码**:
-```python
-    nsgp = common.NSGP  # = 9
-    common.DMAT[nsgp, i] = common.WFC[i] + common.WFA[i] + \
-                          common.KCHECK * common.RVTAR[i] * common.XMTAR
-    if i != common.NZRA:
-        common.DMAT[nsgp, i] += common.WE[i - 1]  # 上游流入
-    common.DMAT[nsgp, i] -= common.WE[i] + rri   # 流出 + 反应消耗
-```
-
-**Fortran代码**:
-```fortran
-      DMAT(NSGP,I)=WFC(I)+WFA(I)+KCHECK*RVTAR(I)*XMTAR
-      IF (I.NE.NZRA) THEN 
-        DMAT(NSGP,I)=DMAT(NSGP,I)+WE(I-1)
-      ENDIF      
-      DMAT(NSGP,I)=DMAT(NSGP,I)-WE(I)-RRI
-```
-
----
-
-#### 1.2.2 碳转化率平衡 (DMAT[NSGP1,i])
-
-**物理意义**: 碳在固体中的转化率平衡。
-
-**数学表达式**:
-
-$$DMAT_{NSGP1,i} = WFC_i + WE_{i-1} \cdot X_{i-1} - RVTAR_1 \cdot XMTAR \cdot X_{i-1} \cdot KCHECK - WE_i \cdot X_i - RI_i + RVTAR_1 \cdot XMTAR \cdot X_i \cdot KCHECK$$
-
-其中：
-- $NSGP1 = NSGP + 1 = 10$
-- $X_i$：碳转化率 [-]
-
-**Python代码**:
-```python
-    nsgp1 = common.NSGP1  # = 10
-    common.DMAT[nsgp1, i] = common.WFC[i]
-    if i != common.NZRA:
-        common.DMAT[nsgp1, i] += common.WE[i - 1] * common.X[i - 1]
-        common.DMAT[nsgp1, i] -= common.RVTAR[0] * common.XMTAR * \
-                                 common.X[i - 1] * common.KCHECK
-    common.DMAT[nsgp1, i] -= common.WE[i] * common.X[i] + rri
-    common.DMAT[nsgp1, i] += common.RVTAR[0] * common.XMTAR * \
-                             common.X[i] * common.KCHECK
-```
-
----
-
-## 2. 能量平衡方程
-
-### 2.1 气体能量平衡 (DMAT[NVWS,i])
-
-**物理意义**: 每个网格单元的能量守恒，包括气体流入/流出的焓变、固体流入/流出的焓变、反应热和热损失。
-
-**数学表达式**:
-
-$$\begin{aligned}
-DMAT_{NVWS,i} &= \sum_{j=1}^{8} FEMF_{j,i-1} \cdot HENTH_{j,i-1} \\
-&+ \sum_{j} R_j^{devol} \cdot H_j(T_{feed}) \\
-&+ \sum_{j} FEED_j \cdot FEEDH_{j,i} \\
-&- \sum_{j=1}^{8} FEMF_{j,i} \cdot HENTH_{j,i} \\
-&+ WFC_i \cdot FEDPH_{1,i} + WFA_i \cdot FEDPH_{2,i} + FEDH2O_i \cdot HFH2O_i \\
-&+ WE_{i-1} \cdot [X_{i-1} \cdot HENTH_{9,i-1} + (1-X_{i-1}) \cdot HENTH_{10,i-1}] \\
-&- WE_i \cdot [X_i \cdot HENTH_{9,i} + (1-X_i) \cdot HENTH_{10,i}] \\
-&- QKW_i - QLOSS \cdot BSMS \cdot HU \cdot 1000 \cdot \frac{DELZ_i}{HREAK} \\
-&+ QH_{CRCT} \cdot \frac{DELZ_i}{HNZFR}
-\end{aligned}$$
-
-其中：
-- $NVWS = 11$（当KTRLT=1时）
-- $HENTH_{j,i}$：组分 $j$ 在单元 $i$ 的焓值 [J/kmol]
-- $QKW_i$：热损失 [W]
-- $QLOSS$：热损失系数
-- $QH_{CRCT}$：热量校正 [J/kg]
-
-**Python代码**:
-```python
-    if common.KTRLT == 1:
-        nvws = common.NVWS  # = 11
-        
-        # 上游单元格流入的能量
-        if i != common.NZRA:
-            common.DMAT[nvws, i] = sum(
-                common.FEMF[j, i - 1] * common.HENTH[j, i - 1] 
-                for j in range(1, common.NGAS + 1)
-            )
-        else:
-            common.DMAT[nvws, i] = 0.0
-        
-        # 挥发分释放带入的能量
-        common.DMAT[nvws, i] += (
-            common.RVCH4[i] * enthp_func(2, 'G', common.TFEED_SL, common.PFEED_SL) +
-            (common.RH2[i] + common.RVH2[i]) * enthp_func(6, 'G', common.TFEED_SL, common.PFEED_SL) +
-            common.RVH2O[i] * common.HFH2O[i] +
-            common.RO2[i] * enthp_func(1, 'G', common.TFEED_SL, common.PFEED_SL) +
-            ...
-        )
-        
-        # 进料带入的能量
-        common.DMAT[nvws, i] += (
-            common.FEEDO2[i] * common.FEEDH[1, i] +
-            common.FEEDN2[i] * common.FEEDH[2, i] +
-            common.FEDCO2[i] * common.FEEDH[3, i]
-        )
-        
-        # 流出带走的能量
-        common.DMAT[nvws, i] -= sum(
-            common.FEMF[j, i] * common.HENTH[j, i] 
-            for j in range(1, common.NGAS + 1)
-        )
-        
-        # 固体颗粒流入的能量
-        common.DMAT[nvws, i] += (
-            common.WFC[i] * common.FEDPH[1, i] +
-            common.WFA[i] * common.FEDPH[2, i] +
-            common.FEDH2O[i] * common.HFH2O[i]
-        )
-        
-        # 上游颗粒流入的能量
-        if i != common.NZRA:
-            common.DMAT[nvws, i] += common.WE[i - 1] * (
-                common.X[i - 1] * common.HENTH[9, i - 1] +
-                (1.0 - common.X[i - 1]) * common.HENTH[10, i - 1]
-            )
-        
-        # 当前单元格颗粒流出的能量
-        common.DMAT[nvws, i] -= common.WE[i] * (
-            common.X[i] * common.HENTH[9, i] +
-            (1.0 - common.X[i]) * common.HENTH[10, i]
-        )
-        
-        # 热损失
-        common.DMAT[nvws, i] -= common.QKW[i]
-        
-        # 热损失校正
-        common.DMAT[nvws, i] -= common.QLOSS * common.BSMS * common.HU * \
-                                1000.0 * common.DELZ[i] / common.HREAK
-        
-        # 第一反应区热校正
-        if i <= common.NZFR:
-            common.DMAT[nvws, i] += common.QH_CRCT * common.DELZ[i] / common.HNZFR
-```
-
----
-
-## 3. 气相反应动力学
-
-### 3.1 CO氧化反应 (XK1)
-
-**反应方程式**:
-
-$$CO + \frac{1}{2}O_2 \rightarrow CO_2$$
-
-**反应速率方程**:
-
-$$XK1 = XK10 \cdot Y_{O2} \cdot Y_{CO} \cdot KTRL_{XK1}$$
-
-其中：
-
-$$XK10 = 3.09 \times 10^8 \cdot \exp\left(-\frac{9.976 \times 10^7}{R \cdot T_i}\right) \cdot \left(\frac{P}{R \cdot T_i}\right)^2 \cdot A_i \cdot \Delta z_i$$
-
-**参数说明**:
-- $Y_{O2}$：O₂摩尔分数 [-]
-- $Y_{CO}$：CO摩尔分数 [-]
-- $R = 8314.3$ J/(kmol·K)：通用气体常数
-- $T_i$：单元 $i$ 的温度 [K]
-- $P$：系统压力 [Pa]
-- $A_i$：单元 $i$ 的截面积 [m²]
-- $\Delta z_i$：单元 $i$ 的高度 [m]
-- $KTRL_{XK1}$：反应控制参数（通常为1）
-
-**Python代码**:
-```python
-def xk1(i):
-    # 计算各组分摩尔分数
-    for j in range(1, common.NGAS + 1):
-        common.Y[j] = common.FEMF[j, i] / common.FEM[i]
-    
-    # 检查反应物是否存在
-    if common.Y[1] < 1.0e-10 or common.Y[3] < 1.0e-10:
-        return 0.0
-    
-    # 计算反应速率
-    exp_arg = -9.976e7 / (common.RAG * common.T[i])
-    xk10 = (3.09e8 * np.exp(exp_arg)
-            * (common.PWK / (common.RAG * common.T[i])) ** 2
-            * common.AT[i] * common.DELZ[i])
-    
-    xk1_result = xk10 * common.Y[1] * common.Y[3] * common.KTRL_XK1
-    return xk1_result
-```
-
-**Fortran代码**:
-```fortran
-      FUNCTION XK1(I)
-      IMPLICIT DOUBLE PRECISION (A-H,O-Z)
-      INCLUDE 'COMMON.00'
-      INCLUDE 'COMMON.01'
-      INCLUDE 'COMMON.02'
-      
-      DO 778 J=1,NGAS
-  778 Y(J)=FEMF(J,I)/FEM(I)
-      
-      IF(Y(1).LT.1.0E-10.OR.Y(3).LT.1.0E-10) THEN
-        XK1=0.0
-        RETURN
-      ENDIF
-      
-      XK10=3.09E8*DEXP(-9.976E7/(RAG*T(I)))
-     &     *(PWK/(RAG*T(I)))**2*AT(I)*DELZ(I)
-      XK1=XK10*Y(1)*Y(3)*KTRL_XK1
-      
-      RETURN
-      END
-```
-
-**参考**: CEN KEFA AND ZHAO LI
-
----
-
-### 3.2 H₂氧化反应 (XK2)
-
-**反应方程式**:
-
-$$H_2 + \frac{1}{2}O_2 \rightarrow H_2O$$
-
-**反应速率方程**:
-
-$$XK2 = XK20 \cdot Y_{O2} \cdot Y_{H2} \cdot KTRL_{XK2}$$
-
-其中：
-
-$$XK20 = 8.83 \times 10^8 \cdot \exp\left(-\frac{9.976 \times 10^7}{R \cdot T_i}\right) \cdot A_i \cdot \Delta z_i \cdot \left(\frac{P}{R \cdot T_i}\right)^2$$
-
-**Python代码**:
-```python
-def xk2(i):
-    for j in range(1, common.NGAS + 1):
-        common.Y[j] = common.FEMF[j, i] / common.FEM[i]
-    
-    if common.Y[1] < 1.0e-10 or common.Y[6] < 1.0e-10:
-        return 0.0
-    
-    exp_arg = -9.976e7 / (common.RAG * common.T[i])
-    xk20 = (8.83e8 * np.exp(exp_arg)
-            * common.AT[i] * common.DELZ[i]
-            * (common.PWK / (common.RAG * common.T[i])) ** 2)
-    
-    return xk20 * common.Y[1] * common.Y[6] * common.KTRL_XK2
-```
-
-**参考**: ZHAO LI AND CEN KEFA
-
----
-
-### 3.3 水煤气变换反应 (XK3)
-
-**反应方程式**:
-
-$$CO + H_2O \rightarrow CO_2 + H_2$$
-
-**反应速率方程**:
-
-$$XK3 = XK30 \cdot Y_{CO} \cdot Y_{H2O} \cdot KTRL_{XK3}$$
-
-其中：
-
-$$XK30 = 2.978 \times 10^{12} \cdot \exp\left(-\frac{3.69 \times 10^8}{R \cdot T_i}\right) \cdot A_i \cdot \Delta z_i \cdot \left(\frac{P}{R \cdot T_i}\right)^2$$
-
-**Python代码**:
-```python
-def xk3(i):
-    for j in range(1, common.NGAS + 1):
-        common.Y[j] = common.FEMF[j, i] / common.FEM[i]
-    
-    if common.Y[3] < 0.0 or common.Y[8] < 0.0:
-        return 0.0
-    
-    exp_arg = -3.69e8 / (common.RAG * common.T[i])
-    xk30 = (2.978e12 * np.exp(exp_arg)
-            * common.AT[i] * common.DELZ[i]
-            * (common.PWK / (common.RAG * common.T[i])) ** 2)
-    
-    return xk30 * common.Y[3] * common.Y[8] * common.KTRL_XK3
-```
-
-**参考**: CEN KEFA AND ZHAO LI
-
----
-
-## 4. 异相反应动力学
-
-### 4.1 碳-水蒸气反应 (A1)
-
-**反应方程式**:
-
-$$C + H_2O \rightarrow CO + H_2$$
-
-**反应速率方程**:
-
-$$A1 = AM \cdot \pi \cdot D_p^2 \cdot XKC_{H2O}(i) \cdot P \cdot PA1 \cdot CTRL_{A1}$$
-
-其中：
-- $AM$：颗粒数量 [-]
-- $D_p$：颗粒直径 [m]
-- $P$：系统压力 [Pa]
-- $CTRL_{A1}$：反应控制系数（通常为0.28）
-- $PA1$：有效分压 [Pa]
-
-**颗粒数量计算**:
-
-$$AM = \frac{XMS_i}{ROS_i} \cdot \frac{6}{\pi \cdot D_p^3}$$
-
-**有效分压计算**:
-
-$$PA1 = Y_{H2O} - \frac{Y_{H2} \cdot Y_{CO} \cdot P}{P_0 \cdot CS_{KEQ1}}$$
-
-**化学平衡常数**:
-
-$$CS_{KEQ1} = \exp\left(17.644 - \frac{30260}{1.8 \cdot T_p}\right)$$
-
-**Python代码**:
-```python
-def A1(i):
-    # 更新气体摩尔分数
-    _update_gas_fractions(i)
-    
-    TP = TPAR(i)  # 颗粒温度
-    
-    # 化学平衡常数
-    exp_arg = 17.644 - 30260.0 / (1.8 * TP)
-    CS_KEQ1 = np.exp(exp_arg)
-    
-    # 分压项
-    PA1 = common.Y[8] - common.Y[6] * common.Y[3] * \
-          common.PWK / common.P0 / CS_KEQ1
-    
-    # 检查反应条件
-    if common.Y[8] < 0.0001 or PA1 < 0.0:
-        return 0.0
-    
-    # 颗粒数量计算
-    AM = common.XMS[i] / common.ROS[i] * 6.0 / (common.PI * common.DP ** 3)
-    
-    # 反应速率计算
-    rate = AM * common.PI * common.DP ** 2.0 * \
-           XKC_H2O(i) * common.PWK * PA1 * common.CTRL_A1
-    
-    return rate
-```
-
-**Fortran代码**:
-```fortran
-      FUNCTION A1(I)
-      IMPLICIT DOUBLE PRECISION (A-H,O-Z)
-      INCLUDE 'COMMON.00'
-      INCLUDE 'COMMON.01'
-      INCLUDE 'COMMON.02'
-      
-      DO 778 J=1,NGAS
-  778 Y(J)=FEMF(J,I)/FEM(I)
-      
-      TP=TPAR(I)
-      CS_KEQ1=DEXP(17.644-30260.0/(1.8*TP))
-      PA1=(Y(8)-Y(6)*Y(3)*PWK/P0/CS_KEQ1)
-      
-      IF(Y(8).LT.0.0001.OR.PA1.LT.0.0) THEN
-        A1=0.0
-        RETURN
-      ENDIF
-      
-      AM=XMS(I)/ROS(I)*6.0/(PI*DP**3)
-      A1=AM*PI*DP**2.0*XKC_H2O(I)*PWK*PA1*CTRL_A1
-      
-      RETURN
-      END
-```
-
----
-
-### 4.2 甲烷化反应 (A2)
-
-**反应方程式**:
-
-$$C + 2H_2 \rightarrow CH_4$$
-
-**反应速率方程**:
-
-$$A2 = AM \cdot \pi \cdot D_p^2 \cdot XKC_{H2}(i) \cdot P \cdot PA2 \cdot CTRL_{A2}$$
-
-**有效分压计算**:
-
-$$PA2 = Y_{H2} - \sqrt{\frac{Y_{CH4} \cdot P_0}{P \cdot CS_{KEQ2}}}$$
-
-**化学平衡常数**:
-
-$$CS_{KEQ2} = \frac{0.175}{34713} \cdot \exp\left(\frac{18400}{1.8 \cdot T_p}\right)$$
-
-**Python代码**:
-```python
-def A2(i):
-    _update_gas_fractions(i)
-    
-    TP = TPAR(i)
-    
-    # 化学平衡常数
-    exp_arg = 18400.0 / (1.8 * TP)
-    CS_KEQ2 = 0.175 / 34713.0 * np.exp(exp_arg)
-    
-    # 分压项
-    PA2 = common.Y[6] - np.sqrt(common.Y[2] * common.P0 / 
-                                common.PWK / CS_KEQ2)
-    
-    if common.Y[6] < 0.001 or PA2 < 0.0:
-        return 0.0
-    
-    AM = common.XMS[i] / common.ROS[i] * 6.0 / (common.PI * common.DP ** 3)
-    
-    rate = AM * common.PI * common.DP ** 2.0 * \
-           XKC_H2(i) * common.PWK * PA2 * common.CTRL_A2
-    
-    return rate
-```
-
----
-
-### 4.3 碳-氧气反应 (A3)
-
-**反应方程式**:
-
-$$C + O_2 \rightarrow CO + CO_2$$
-
-**反应速率方程**:
-
-$$A3 = AM \cdot \pi \cdot D_p^2 \cdot XKC_{O2}(i) \cdot P \cdot Y_{O2} \cdot CTRL_{A3}$$
-
-**Python代码**:
-```python
-def A3(i):
-    _update_gas_fractions(i)
-    
-    if common.Y[1] <= 0.0:
-        return 0.0
-    
-    PA3 = common.Y[1]
-    
-    AM = common.XMS[i] / common.ROS[i] * 6.0 / (common.PI * common.DP ** 3)
-    
-    rate = AM * common.PI * common.DP ** 2.0 * \
-           XKC_O2(i) * common.PWK * PA3 * common.CTRL_A3
-    
-    return rate
-```
-
----
-
-## 5. 扩散与传质模型
-
-### 5.1 扩散系数计算模型 (Wen模型)
-
-总反应速率系数由化学反应速率、气相扩散速率和灰层扩散速率串联组成：
-
-$$\frac{1}{XKC} = \frac{1}{RKCH \cdot YY^2} + \frac{1}{RKDG} + \frac{1}{RKDA} \cdot \left(\frac{1}{YY} - 1\right)$$
-
-或等价的：
-
-$$XKC = \frac{YY^2}{\frac{1}{RKCH} + \frac{YY^2}{RKDG} + \frac{YY - YY^2}{RKDA}}$$
-
-其中：
-- $RKCH$：化学反应速率常数
-- $RKDG$：气相扩散速率
-- $RKDA$：灰层扩散速率
-- $YY$：反应核模型参数
-
-### 5.2 反应核模型参数
-
-$$YY = \left(\frac{1 - FOC}{1 - XCVM0}\right)^{1/3}$$
-
-其中：
-
-$$FOC = 1 - FASH \cdot \frac{X}{1 - X}$$
-
-$$FASH = \frac{ELAS}{ELC + ELH + ELO + ELN + ELS}$$
-
-### 5.3 O₂扩散系数计算
-
-**化学反应速率常数**:
-
-$$RKCH = 8710 \cdot \exp\left(-\frac{17967}{T_p}\right)$$
-
-**气相扩散系数**:
-
-$$D0 = 4.26 \cdot \left(\frac{T}{1800}\right)^{1.75} \cdot \frac{P_0}{P}$$
-
-$$RKDG = 0.292 \cdot \Phi(i) \cdot \frac{D0}{D_p \cdot 100 \cdot T} \cdot COEF_{A3}$$
-
-**灰层扩散系数**:
-
-$$RKDA = VOID^{2.5} \cdot RKDG$$
-
-**单位转换**:
-
-$$XKC_{O2} = XKC \cdot \frac{10}{1.01325 \times 10^5 \cdot 12}$$
-
-**Python代码**:
-```python
-def XKC_O2(i):
-    TP = TPAR(i)
-    VOID = 0.75
-    
-    # 1kg原煤对应的灰分量
-    FASH = common.ELAS / (common.ELC + common.ELH + 
-                          common.ELO + common.ELN + common.ELS)
-    
-    # 计算碳转化率
-    x_safe = min(common.X[i], 0.999999)
-    if x_safe >= 1.0:
-        FOC = 0.0
-    else:
-        FOC = 1.0 - FASH * x_safe / (1.0 - x_safe)
-    
-    # 反应核模型参数
-    YY = ((1.0 - FOC) / (1.0 - common.XCVM0)) ** 0.333
-    if YY >= 1.0:
-        YY = 1.0
-    
-    # RKCH: 化学反应速率常数
-    exp_arg = -17967.0 / TP
-    RKCH = 8710.0 * np.exp(exp_arg)
-    
-    # D0: 扩散系数基础值
-    t_safe = max(common.T[i], 273.15)
-    D0 = 4.26 * (t_safe / 1800.0) ** 1.75 / common.PWK * common.P0
-    
-    # RKDG: 气相扩散系数
-    RKDG = 0.292 * PHI(i) * D0 / (common.DP * 100.0) / common.T[i] * common.COEF_A3
-    
-    # RKDA: 灰层扩散系数
-    RKDA = VOID ** 2.5 * RKDG
-    
-    # XKC_O2: 总反应速率系数
-    XKC = YY * YY / (1.0 / RKCH + YY * YY / RKDG + 1.0 / RKDA * (YY - YY * YY))
-    
-    # 单位转换: g/(cm²·atm·s) -> kmol/(m²·Pa·s)
-    XKC = XKC * 10.0 / 1.01325e5 / 12.0
-    
-    return XKC
-```
-
----
-
-## 6. 热力学性质计算
-
-### 6.1 热容积分 (CMP函数)
-
-热容多项式（Knacke/Barin格式）:
-
-$$Cp = A + B \times 10^{-3}T + C \times \frac{10^5}{T^2} + D \times 10^{-6}T^3$$
-
-积分公式:
-
-$$\int_{T_0}^{T} Cp \, dT = 4.186 \cdot \left[A(T-T_0) + 0.05B\left(\frac{T^2}{100} - \frac{T_0^2}{100}\right) - C\left(\frac{10^5}{T} - \frac{10^5}{T_0}\right) + \frac{D}{3}\left(\left(\frac{T}{100}\right)^3 - \left(\frac{T_0}{100}\right)^3\right)\right]$$
-
-**Python代码**:
-```python
-def CMP_SOLID(A: float, B: float, C: float, D: float, T: float, T0: float) -> float:
-    """
-    计算热容积分 (与Fortran CMP函数一致)
-    单位: kJ/kmol
-    """
-    term_a = A * (T - T0)
-    term_b = B * 0.05 * (T * T * 0.01 - T0 * T0 * 0.01)
-    term_c = -C * (1.0e5 / T - 1.0e5 / T0)
-    term_d = D / 3.0 * ((0.01 * T)**3 - (0.01 * T0)**3)
-    
-    result = 4.186 * (term_a + term_b + term_c + term_d)
-    return result
-```
-
-### 6.2 焓值计算
-
-**气体组分焓值**:
-
-$$H_j(T) = \int_{298.15}^{T} Cp_j \, dT$$
-
-**固体碳焓值**:
-
-$$H_C(T) = HMT + CMP(A_1, B_1, C_1, D_1, T_{neu}, 298.15)$$
-
-当 $T > 1100K$:
-
-$$H_C(T) += CMP(A_2, B_2, C_2, D_2, T, 1100)$$
-
-**Python代码**:
-```python
-def FC(TEMP: float, PP: float, X: float, IAGG: str, KALZG: str) -> float:
-    """
-    计算固体碳(C)的热力学性质
-    """
-    A = [0.026, 5.841]
-    B = [9.307, 0.104]
-    C = [-0.354, -7.559]
-    D = [-4.155, 0.0]
-    HMT = 0.0
-    TU = 298.15
-    
-    TEMPNEU = min(TEMP, 1100.0)
-    
-    if KALZG == 'ENTH':
-        # 焓值 [J/kmol]
-        E = HMT + CMP_SOLID(A[0], B[0], C[0], D[0], TEMPNEU, TU)
-        if TEMP > 1100.0:
-            E = E + CMP_SOLID(A[1], B[1], C[1], D[1], TEMP, 1100.0)
-        return E * 1.0e3
-```
-
----
-
-*最后更新: 2026-03-20*
+令n[j,i]=FEMF[j,i]，Wᵢ=WE[i]，xᵢ=X[i]。每格11个未知量：
+
+$$
+\mathbf u_i=(n_{O_2},n_{CH_4},n_{CO},n_{CO_2},n_{H_2S},n_{H_2},n_{N_2},n_{H_2O},W,x,T)_i^T.
+$$
+
+气体n单位kmol/s，W单位kg/s，x无量纲，T为K。总气量Fᵢ=Σⱼn[j,i]，摩尔分数yⱼ=nⱼ/F。下文省略本格下标，带“−”表示第i−1格；i=1时上游项为0，所有入口均由本格源项给出。
+
+## 3.2 几何离散
+
+燃烧室格号沿物料方向1→30。当前固定几何按流向为：
+
+| 格子 | 格数 | 段长m | 直径m | 每格Δz m |
+|---|---:|---:|---:|---:|
+| 1–4 | 4 | 0.1876 | 1.025 | 0.0469 |
+| 5–8 | 4 | 0.1876 | 1.675 | 0.0469 |
+| 9–15 | 7 | 3.4 | 2.0 | 3.4/7 |
+| 16–22 | 7 | 3.4 | 2.0 | 3.4/7 |
+| 23–24 | 2 | 0.1926 | 1.725 | 0.0963 |
+| 25–26 | 2 | 0.1926 | 1.175 | 0.0963 |
+| 27–28 | 2 | 0.4 | 0.935 | 0.2 |
+| 29–30 | 2 | 0.4 | 1.005 | 0.2 |
+| 31–30+N_RSC | N_RSC | H_RSC | D_RSC | H_RSC/N_RSC |
+
+燃烧室总长8.3604 m；截面积`AT=πD²/4`，周长`AR=πD`，气相速率使用的格子几何体积`V=AT·DELZ`，壁面面积`A_w=AR·DELZ`。气相速率没有再乘空隙率EPS。
+
+`H`是历史几何坐标：燃烧室H[1]=8.3604、H[30]=0.2；RSC却定义H[i]=HREAK+(i−30)H_RSC/N_RSC。因此不能把整列H当成从入口连续增加的物理坐标。若需连续沿程位置，应另计算`z_i=Σ(k≤i)DELZ[k]`，并明确取单元出口还是中心。当前Web图主要用格子号，未修改历史H字段。
+
+## 3.3 进料质量基准
+
+记浆量B=BSLURRY、输入煤质量分数r=RATIO_COAL、煤内水w=ELH2O、灰a=ELAS，元素分析e_C等按**相同输入煤基准**给出：
+
+$$
+B_c=Br=BSMS,\quad B_{daf}=B_c(1-w-a)=BSWAF,
+$$
+$$
+\dot m_{water}=B(1-r)+B_cw,\quad \dot m_{ash}=B_ca,\quad \dot m_{C,coal}=B_ce_C.
+$$
+
+ELC/H/O/N/S代表不包含煤内水、灰所单列质量的元素份额。数据应满足相容分析和约1的总和；**当前校验只查单项范围和灰+水<1，未强制总和=1，也不自动归一化**。已有干基/空干基分析需使用者先确认口径，不能简单把所有值当成daf。
+
+纯氧质量流为q_O·B_daf，其中q_O=FOXY；氧纯度p=PURE_O2为摩尔分数。将氧化剂杂质全部当成N₂：
+
+$$
+F_{ox}=\frac{q_OB_{daf}}{M_{O_2}p},\quad n_{O_2,in}=pF_{ox},\quad n_{N_2,in}=(1-p)F_{ox}.
+$$
+
+FOXY不是空气过量系数，也不是纯氧/原煤质量比。`FOX=F_ox·VM_NORMAL`包含氧化剂中的N₂；`GFOX=F_ox[pM_O2+(1−p)M_N2]`。
+
+`RATIO_CO2`定义为外加CO₂与**整个氧化剂流**的摩尔/同标况体积比：`n_CO2,in=F_ox·RATIO_CO2`，不是CO₂质量分数。
+
+一次O₂份额OX_PART在第1格加入，其余O₂在第7格；全部杂质N₂和外加CO₂仍在第1格加入。煤、配浆水、煤内水、灰及挥发源项也在第1格。源项按`DELZ/HFED`分配，目前HFED=DELZ[1]；RSC无外部进料。
+
+## 3.4 记号与反应分类
+
+- fⱼ：外部进料FEED/FED，单位kmol/s；c=WFC、a=WFA，单位kg/s。
+- v_CH4=RVCH4、v_CO=RCO、v_CO2=RCO2、v_H2O=RVH2O、v_tar=RVTAR。
+- h=RH2+RVH2、o=RO2、s=RH2S、n=REN2；这些是热解释放/余量源项。
+- g₁..g₆=XK1..XK6；a₁..a₅=A1..A5，单位kmol/s。
+- φ=PHI；碳消耗`r_C=M_C(a₁+a₂+a₃+a₄)`，kg/s；A5不消耗固体碳。
+- wᵣ、mᵣ为RSC额外WGS和甲烷化速率；燃烧室取0。
+
+焦油按伪组分CH₀.₆₈₉O₀.₀₁₄在本格即时氧化：
+
+$$
+Tar+1.16525O_2\rightarrow CO_2+0.3445H_2O.
+$$
+
+该化学计量由C/H/O配平得到。CH₄/H₂/CO的“瞬时挥发分燃烧”项在代码中乘0，主要由XK气相反应处理；焦油燃烧项保留。不能把所有挥发分都解释为瞬时完全燃烧。
+
+## 3.5 八个气体组分残差
+
+以下为**未做行缩放**的物理残差bⱼ，以“输入−输出+生成−消耗”为正，单位kmol/s：
+
+$$
+\begin{aligned}
+b_{O_2}={}&n^-_{O_2}-n_{O_2}+f_{O_2}+o-1.16525v_{tar}
+-\tfrac12g_1-\tfrac12g_2-2g_6-a_3/\phi,\\
+b_{CH_4}={}&n^-_{CH_4}-n_{CH_4}+v_{CH_4}-g_5-g_6+a_2+m_r,\\
+b_{CO}={}&n^-_{CO}-n_{CO}+v_{CO}-g_1-g_3+g_4+g_5
++a_1+(2-2/\phi)a_3+2a_4-a_5-w_r-m_r,\\
+b_{CO_2}={}&n^-_{CO_2}-n_{CO_2}+f_{CO_2}+v_{CO_2}+v_{tar}
++g_1+g_3-g_4+g_6+(2/\phi-1)a_3-a_4+a_5+w_r,\\
+b_{H_2S}={}&n^-_{H_2S}-n_{H_2S}+s,\\
+b_{H_2}={}&n^-_{H_2}-n_{H_2}+h-g_2+g_3-g_4+3g_5+a_1-2a_2+a_5+w_r-3m_r,\\
+b_{N_2}={}&n^-_{N_2}-n_{N_2}+f_{N_2}+n,\\
+b_{H_2O}={}&n^-_{H_2O}-n_{H_2O}+f_{H_2O}+v_{H_2O}+0.3445v_{tar}
++g_2-g_3+g_4-g_5+2g_6-a_1-a_5-w_r+m_r.
+\end{aligned}
+$$
+
+实际Rⱼ=sⱼbⱼ，s_CO2=1/1.2、s_H2=1.02，其余为1。2026-11-02修复的关键是：**包括新增RSC反应在内的全部项一起缩放**。整行乘非零常数不改变R=0的根；只缩放其中一部分会改变实际化学计量。
+
+DMAT在单格计算时存R；全GASIFIER完成该格后变为−R；线性求解后被覆盖成Δu。直接读取DMAT判断元素守恒前必须先确认所处阶段。
+
+## 3.6 总固体和残碳两个方程
+
+$$
+R_W=W^-+c+a-W-r_C=0,
+$$
+$$
+R_C=W^-x^-+c-Wx-r_C=0.
+$$
+
+两式相减：
+
+$$
+W(1-x)=W^-(1-x^-)+a.
+$$
+
+因此正常模式中灰是惰性守恒账项；RSC无进灰，灰流不变。WE本身不是残碳流，必须用WE·X获得残碳，WE·(1−X)获得灰。A5及RSC反应只改变气相组分，不进入r_C。
+
+## 3.7 能量方程
+
+令hⱼ(T,P)为含标准生成焓的气体摩尔焓，J/kmol；h_C、h_A为固体比焓，J/kg；`h_s=xh_C+(1−x)h_A`。正常模式能量残差：
+
+$$
+R_E=\sum_j n_j^-h_j^-+W^-h_s^-+H_{feed,i}+H_{vol,i}
+-\sum_j n_jh_j-Wh_s-Q_{wall,i}-Q_{loss,i}+Q_{corr,i}=0.
+$$
+
+第一格上游焓流为0。外部源项的焓为：
+
+$$
+H_{feed}=f_{O_2}h_{O_2,feed}+f_{N_2}h_{N_2,feed}+f_{CO_2}h_{CO_2,slot}
++f_{H_2O}h_{water,feed}+ch_{C,feed}+ah_{A,feed}.
+$$
+
+`H_vol`按CH₄、H₂、CO、CO₂、H₂S、O₂、N₂的热解源量乘煤浆温压下的对应焓，水使用HFH2O，焦油使用`+9.3e6·v_tar`。**CO₂进料焓槽当前调用了N₂的ENTHP(7)，是需核验的历史实现；不能据上式符号误认为已使用正确CO₂物性。**
+
+气体焓含生成焓，组分反应引起的焓变化已反映在上述输入/输出中，不能再逐项重复加入ΔH_rxn。仍存在QH_CRCT历史热解校正，其基准和单位问题见第7章；它不等于“另加每个反应的反应热”。
+
+壁面项：
+
+$$
+Q_{wall,i}=\begin{cases}
+\dfrac{\sigma(T_i^4-T_{w,i}^4)}{1/0.78+1/0.78-1}\,AR_i\Delta z_i,&T_i>T_{w,i},\\
+0,&T_i\le T_{w,i}.
+\end{cases}
+$$
+
+KMODEL=0取TW；晋华炉燃烧室取TW_WALL，RSC取TW_RSC。代码没有在T低于壁温时反向加热。两个有效壁温来自输入，未由汽包饱和温度、传导热阻或金属壁温求解。
+
+附加损失和校正：
+
+$$
+Q_{loss,i}=\mathbf1_{i\le30}\ QLOSS\,BSMS\,HU\,1000\frac{\Delta z_i}{HREAK},
+$$
+$$
+Q_{corr,i}=\mathbf1_{i\le NZFR}\ QH\_CRCT\frac{\Delta z_i}{HNZFR}.
+$$
+
+全燃烧室附加损失合计QLOSS·BSMS·HU·1000，RSC不再重复扣该损失。上述Q_corr是实际用法；QH_CRCT生成式的功率量纲仍待独立审计。
+
+## 3.8 RSC额外反应
+
+RSC段沿用原XK1–6和A1–5计算，再叠加两项松弛；**没有自动关闭原反应，也没有把固体碳清零**。设T*=max(T,500K)，p*=P/P0：
+
+$$
+K_w=\exp(4577.8/T^*-4.33),\quad K_m=\exp(24766/T^*-25.82),
+$$
+$$
+w_r=KRELAX_{WGS}F\left(y_{CO}y_{H_2O}-\frac{y_{CO_2}y_{H_2}}{\max(K_w,10^{-30})}\right),
+$$
+$$
+m_r=KRELAX_{METH}F\left(y_{CO}y_{H_2}^3-\frac{y_{CH_4}y_{H_2O}}{\max(K_m(p^*)^2,10^{-30})}\right).
+$$
+
+正号按正向WGS/甲烷化，负号表示逆向。KRELAX在此是每格经验松弛倍率，不是已乘体积的时间速率常数。公式没有乘Δz或TRZ，所以改变N_RSC会改变累计松弛强度，网格收敛不能只增加格数而保留所有参数不核验。
+
+## 3.9 三截面的独立元素核算
+
+对湿气按组分次序构造**原子数矩阵**A，行顺序C,H,O,N,S：
+
+$$
+A=\begin{pmatrix}
+0&1&1&1&0&0&0&0\\
+0&4&0&0&2&2&0&2\\
+2&0&1&2&0&0&0&1\\
+0&0&0&0&0&0&2&0\\
+0&0&0&0&1&0&0&0
+\end{pmatrix}.
+$$
+
+气相元素质量流`diag(M_C,M_H,M_O,M_N,M_S)·A·n`，碳行另加Wx，灰另列W(1−x)。乘3600转为kg/h。进口从煤元素分析、水的H/O分解、氧化剂及外加CO₂独立建立，不用模型输出反推进口。
+
+每个元素/灰的差额定义“下游−上游”；审计标准`|差额|≤max(1e−6 kg/h,入口×1e−8)`。这是数值闭合阈值，不表示工业预测精度。水侧产汽没有物料进入气侧，不能加入上述H/O进口，否则会重复扩展边界。
+
+实际审计脚本为[check_element_balance.py](../../numeric_test/check_element_balance.py)，基线证据见[修复报告](../ELEMENT_BALANCE_FIX.md)。KONTR输出的总质量差只作为内置诊断；它不能替代逐元素、三截面独立账。
+
+
+## 3.10 从局部方程到全炉守恒
+
+把8个未缩放气相方程写成`b=n⁻−n+f+v+νr`，ν为反应化学计量矩阵。对气相反应，原子矩阵A满足`Aν=0`；固碳反应需要同时加入残碳方程中的−r_C，才能使碳总账抵消。灰由两条固体方程之差独立得到。
+
+实际存储残差为`R_g=S b`，其中S的CO₂/H₂对角元分别1/1.2、1.02。因此审计物理原子源项应使用`A S⁻¹ R_g`，不能直接用`A R_g`断言违反配平。此次已修复缺陷正是部分新源项漏乘S，使`R_g=0`对应了错误的b。
+
+沿格子求和时，相邻出口/入口流相消，只剩总入口与最后出口，以及未配平源项或数值残差。独立三截面账可以把问题定位到燃烧室或RSC；仅检查全炉总质量可能掩盖不同元素正负误差相互抵消。
+
+## 3.11 一个进料换算算例
+
+以典型14kg/s煤浆、煤质量分数0.6、灰0.15、煤内水0、FOXY0.98为例：
+
+- 输入煤`BSMS=14×0.6=8.4kg/s`；无水无灰煤`BSWAF=8.4×0.85=7.14kg/s`。
+- 配浆水`14×0.4=5.6kg/s`；灰`8.4×0.15=1.26kg/s=4536kg/h`。
+- 纯氧`0.98×7.14=6.9972kg/s`；按31.998kg/kmol得O₂约0.2186761673kmol/s。
+- 纯度0.996时N₂杂质`(6.9972/31.998)×(1−0.996)/0.996≈0.0008782175kmol/s`；其质量不能简单取纯氧质量的0.4%。
+- 煤中元素碳`8.4×0.6802=5.71368kg/s=20569.248kg/h`，一部分在热解后成为气体，剩余才是WFC。
+
+这说明氧煤比的分母、煤浆含煤比例、氧纯度和未反应碳需要分别解释。示例中灰在两出口仍应为4536kg/h；不能把出口总固体WE直接当成这一个数，也不能把进煤碳全部视为固定碳进料。
