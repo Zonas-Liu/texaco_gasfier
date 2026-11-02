@@ -1,5 +1,7 @@
 # 气化工艺工作台前端重构
 
+后续图表和数据表细化见[数据展示说明](UI_DATA_PRESENTATION.md)：出口页已改为共同组分轴与统一出口矩阵，本文保留前一轮结构和当次验收记录。
+
 ## 设计简报
 
 使用全局frontend-design skill，面向调工况、比较两出口及查看热回收的工艺工程用户。范围为HTML + Flask Web版；沿用原生JavaScript、Plotly和现有API，计算模型保持原样。

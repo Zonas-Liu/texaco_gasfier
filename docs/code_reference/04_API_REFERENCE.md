@@ -99,3 +99,5 @@ for section in result['outlet_sections']:
 `showSummary/renderProcess`把同次输出的摘要、出口和热回收数据绑定到工艺示意；不使用编辑中的参数补齐旧结果。TEXACO只显示一个出口且隐藏RSC与产汽区。`plotLine`温度图以第30格为交界分段着色并共用交界点，不平滑或改写原始数据；`syncDrawer/drawer`管理窄屏抽屉、inert和焦点回退。视觉规范及浏览器验收见[工艺工作台设计](../UI_REDESIGN_2026-11-02.md)。
 
 用户改参后旧结果仍可能保留显示，需要标记为上次结果；未达目标的结果只作诊断。前端缺数值显示破折号，不用默认零或示例结果填补。
+
+`renderOutletChart/renderOutletMatrix`分别绘制共同组分轴和出口列组；`outletFlow/outletTotal`处理同次流量的显示单位；`numberCell`区分微量、零和缺失值；`outletCsv`输出未按显示位数舍入的数据。沿程曲线与温度分段保持原始网格值。交互口径与展示层回归命令见[图表与数据表细节](../UI_DATA_PRESENTATION.md)。

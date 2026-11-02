@@ -100,7 +100,7 @@
           <p class="section-note">干基不含水蒸气，湿基包含 H₂O。标况换算使用该次输出记录的基准。</p>
         </section>
         <section id="tab-profile" class="tab-panel" role="tabpanel" aria-labelledby="nav-profile" hidden>
-          <div class="section-heading"><div><h2>炉内状态分布</h2><p class="muted">沿物料流向查看每个网格的计算值</p></div></div>
+          <div class="section-heading"><div><h2>炉内状态分布</h2><p class="muted">沿物料流向查看计算值；拖动图表框选，双击恢复</p></div><button class="btn btn-outline btn-small" data-reset-panel="tab-profile">恢复坐标范围</button></div>
           <div class="two-col">
             <section class="panel"><h2>温度</h2><div id="plot-temp" class="plot"></div></section>
             <section class="panel"><h2>碳转化指标</h2><div id="plot-x" class="plot"></div></section>
@@ -108,11 +108,11 @@
             <section class="panel"><h2>气体速度</h2><div id="plot-u0" class="plot"></div></section>
           </div>
           <details class="panel data-details"><summary>查看内部参数明细</summary><p class="section-note">固体流量包含残碳和灰；碳转化指标沿用原模型 FOC 定义。</p><div class="table-wrap" id="internal-table"></div></details>
-          <div class="two-col"><section class="panel"><h2>主要气体组分</h2><div id="plot-gas-main" class="plot"></div></section><section class="panel"><h2>其他气体组分</h2><div id="plot-gas-other" class="plot"></div></section></div>
+          <div class="two-col"><section class="panel"><h2>主要组分（含水蒸气）</h2><div id="plot-gas-main" class="plot"></div></section><section class="panel"><h2>其他气体组分</h2><div id="plot-gas-other" class="plot"></div></section></div>
           <details class="panel data-details"><summary>查看气体组成明细 <span>体积分数 %</span></summary><div class="table-wrap" id="gas-table"></div></details>
         </section>
         <section id="tab-history" class="tab-panel" role="tabpanel" aria-labelledby="nav-history" hidden>
-          <div class="section-heading"><div><h2>求解收敛过程</h2><p class="muted">观察气体、固体与温度的牛顿修正量</p></div></div>
+          <div class="section-heading"><div><h2>求解收敛过程</h2><p class="muted">观察气体、固体与温度的牛顿修正量</p></div><button class="btn btn-outline btn-small" data-reset-panel="tab-history">恢复坐标范围</button></div>
           <div class="section-note">显示修正量绝对值之和；达到迭代上限不代表收敛。</div>
           <div class="two-col"><section class="panel"><h2>组分与固体修正量</h2><div id="plot-history-main" class="plot"></div></section><section class="panel"><h2>温度修正量</h2><div id="plot-history-t" class="plot"></div></section></div>
           <details class="panel data-details"><summary>查看迭代明细</summary><div class="table-wrap" id="history-table"></div></details>

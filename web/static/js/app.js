@@ -2,10 +2,10 @@
 const OUTPUT_LABELS = {
   Iter: "迭代",
   KONVER: "收敛标志",
-  SUMFE: "气体组分",
-  SUMWE: "固体质量流",
-  SUMX: "固体碳分数",
-  SUMT: "温度",
+  SUMFE: "气体组分修正量 (kmol/s)",
+  SUMWE: "固体流修正量 (kg/s)",
+  SUMX: "碳分数修正量",
+  SUMT: "温度修正量 (K)",
   I: "格子号",
   "H(m)": "高度 (m)",
   "U0(m/s)": "气速 (m/s)",
@@ -37,6 +37,8 @@ const state = {
   loaded: false,
   dirty: false,
   raw: "",
+  outletBasis: "dry",
+  flowUnit: "kmol/h",
 };
 const finite = (v) => typeof v === "number" && Number.isFinite(v);
 const fmt = (v, digits = 2) =>
@@ -209,6 +211,12 @@ document.addEventListener("DOMContentLoaded", async () => {
   $("btn-raw").addEventListener("click", () => activateTab("tab-raw"));
   $("btn-back").addEventListener("click", () => activateTab("tab-overview"));
   $("btn-retry").addEventListener("click", loadResults);
+  document.querySelectorAll("[data-reset-panel]").forEach((button) => {
+    button.addEventListener("click", () => {
+      document.querySelectorAll(`#${button.dataset.resetPanel} .js-plotly-plot`)
+        .forEach((plot) => Plotly.relayout(plot, { "xaxis.autorange": true, "yaxis.autorange": true }));
+    });
+  });
   await Promise.allSettled([loadParams(), loadResults()]);
   try {
     const progress = await api("/api/progress");
@@ -574,7 +582,7 @@ function layout(yTitle, xTitle = "格子号") {
     },
     paper_bgcolor: "#ffffff",
     plot_bgcolor: "#ffffff",
-    margin: { l: 56, r: 22, t: 38, b: 48 },
+    margin: { l: 64, r: 22, t: 28, b: 52 },
     xaxis: {
       title: { text: xTitle, font: { size: 12 } },
       showgrid: false,
@@ -586,45 +594,65 @@ function layout(yTitle, xTitle = "格子号") {
       nticks: 7,
       zeroline: false,
       automargin: true,
+      tickfont: { size: 11 },
+      showspikes: true,
+      spikemode: "across",
+      spikesnap: "cursor",
+      spikethickness: 1,
+      spikecolor: "#a2b7d1",
     },
     yaxis: {
-      title: { text: yTitle, font: { size: 12 } },
+      title: { text: yTitle, font: { size: 12 }, standoff: 12 },
       gridcolor: "#e8edf4",
       nticks: 5,
       zeroline: false,
       automargin: true,
+      tickfont: { size: 11 },
+      separatethousands: true,
     },
     legend: {
       orientation: "h",
       x: 0,
-      y: 1.2,
+      y: -0.24,
+      yanchor: "top",
       font: { size: 12 },
       traceorder: "normal",
+      itemsizing: "constant",
     },
     hovermode: "x unified",
     hoverlabel: { bgcolor: "#24334a", font: { color: "#fff", size: 12 } },
     showlegend: false,
   };
 }
+function seriesUnit(key, title) {
+  return ({SUMFE: "kmol/s", SUMWE: "kg/s", SUMX: "（无量纲）", SUMT: "K"})[key]
+    ?? title.match(/\(([^)]+)\)/)?.[1] ?? "";
+}
 function plotLine(id, rows, keys, yTitle, options = {}) {
   if (!rows.length) return;
   const traces = keys.map((key, i) => ({
     x: rows.map((r) => r[options.x || "I"]),
     y: rows.map((r) => r[key]),
-    name: GAS_LABELS[key] || OUTPUT_LABELS[key] || key,
+    name: ({SUMFE:'气体组分',SUMWE:'固体流',SUMX:'碳分数',SUMT:'温度'})[key] || GAS_LABELS[key] || OUTPUT_LABELS[key] || key,
     mode: "lines",
     connectgaps: false,
     line: {
-      width: 3,
+      width: 2.4,
       shape: "linear",
       color: options.color || GAS_COLORS[key] || COLORS[i],
       dash: options.log && i > 0 ? ["solid", "dot", "dash"][i] : "solid",
     },
-    hovertemplate: "%{y:.4g}<extra>%{fullData.name}</extra>",
+    hovertemplate: `%{y:${options.log ? ".3e" : ",.4~g"}} ${escapeHtml(seriesUnit(key, yTitle))}<extra>%{fullData.name}</extra>`,
   }));
   const spec = layout(yTitle, options.x === "Iter" ? "迭代次数" : "格子号");
   spec.showlegend = keys.length > 1;
-  if (options.log) spec.yaxis.type = "log";
+  spec.xaxis.hoverformat = ".0f";
+  if (keys.length > 1 || options.legendSpace) spec.margin.b = 90;
+  if (options.log) {
+    spec.yaxis.type = "log";
+    spec.yaxis.exponentformat = "power";
+    spec.yaxis.showexponent = "all";
+  } else if (keys[0] === "T(C)") spec.yaxis.tickformat = ",.0f";
   if (options.zones && rows.length > 30) {
     // 分段着色沿用原网格数值，交界点共用以保持曲线连续。
     const hot = rows.filter((r) => r.I <= 30), cool = rows.filter((r) => r.I >= 30);
@@ -663,7 +691,7 @@ function plotLine(id, rows, keys, yTitle, options = {}) {
         text: "燃烧室出口",
         showarrow: false,
         xanchor: "right",
-        yshift: 15,
+        yshift: 8,
         font: { size: 11, color: "#204f9c" },
       },
     ];
@@ -692,9 +720,8 @@ function plotLine(id, rows, keys, yTitle, options = {}) {
         ax: i === 0 ? 0 : -52,
         ay: i === 0 ? -36 : -28,
         bgcolor: "#fff",
-        bordercolor: "#d6e0ea",
-        borderpad: 5,
-        font: { size: 11, color: "#24334a" },
+        borderpad: 3,
+        font: { size: 12, color: i === 0 ? "#a55719" : "#204f9c" },
       }),
     );
   }
@@ -713,81 +740,144 @@ function plotBar(id, data, unit, horizontal = false, maximum = null) {
     y: horizontal ? keys.map((k) => GAS_LABELS[k] || k) : values,
     orientation: horizontal ? "h" : "v",
     marker: { color: keys.map((k) => GAS_COLORS[k] || COLORS[0]) },
-    text: values.map((v) => fmt(v, 2) + (unit === "%" ? "%" : "")),
+    customdata: values.map((v) => finite(v) ? v.toPrecision(5) : "—"),
+    text: horizontal ? [] : values.map((v) => fmt(v, 2)),
     textposition: "outside",
     cliponaxis: false,
-    hovertemplate: "%{text}<extra></extra>",
+    hovertemplate: `%{customdata} ${unit}<extra></extra>`,
   };
   const spec = layout(
     horizontal ? "" : unit,
     horizontal ? `体积分数 (${unit})` : "组分",
   );
-  spec.margin = { l: 35, r: 50, t: 12, b: 38 };
-  spec.bargap = 0.48;
+  spec.margin = { l: 42, r: 88, t: 18, b: 44 };
+  spec.bargap = 0.52;
   spec.hovermode = "closest";
   if (horizontal) {
     spec.yaxis.autorange = "reversed";
     spec.yaxis.tickmode = "array";
     spec.yaxis.tickvals = keys.map((k) => GAS_LABELS[k] || k);
-    spec.xaxis.range = [0, maximum || Math.max(...values, 1) * 1.23];
+    spec.xaxis.range = [0, maximum || Math.ceil(Math.max(...values, 1) / 10) * 10];
+    spec.xaxis.tickformat = ".0f";
     spec.yaxis.showgrid = false;
+    spec.annotations = keys.map((k, i) => ({
+      x: 1.03, xref: "paper", xanchor: "left", y: GAS_LABELS[k] || k,
+      text: `${values[i] !== 0 && Math.abs(values[i]) < .01 ? values[i].toExponential(1) : fmt(values[i], 2)}${unit}`,
+      showarrow: false, font: { size: 12, color: "#24334a" },
+    }));
   } else {
     spec.yaxis.range = [0, Math.max(...values, 1) * 1.22];
     spec.xaxis.showgrid = false;
   }
   Plotly.newPlot(id, [trace], spec, PLOT_CONFIG);
 }
+// 仅格式化展示：微量非零数保留科学计数，title保留输出原值。
+function numberCell(value, digits = 3) {
+  if (!finite(value)) return '<span class="missing-value" aria-label="未记录">—</span>';
+  const small = value !== 0 && Math.abs(value) < 10 ** -digits;
+  const text = small ? value.toExponential(2) : fmt(value, digits);
+  const display = small ? text.replace(/e([+-]?\d+)/, (_, exponent) => ` × 10<sup>${Number(exponent)}</sup>`) : text;
+  return `<span class="numeric-value${small ? ' scientific-value' : ''}" title="原始值 ${value}">${display}</span>`;
+}
+function columnHeading(column) {
+  const label = OUTPUT_LABELS[column] || GAS_LABELS[column] || column;
+  const match = label.match(/^(.*?)\s*\(([^)]+)\)$/);
+  return match ? `${escapeHtml(match[1])}<small class="column-unit">${escapeHtml(match[2])}</small>` : escapeHtml(label);
+}
 function renderTable(id, columns, rows, formatters = {}) {
-  if (!rows.length) {
-    $(id).textContent = "暂无数据";
-    return;
-  }
-  $(id).innerHTML =
-    `<table><thead><tr>${columns.map((c) => `<th scope="col">${escapeHtml(OUTPUT_LABELS[c] || GAS_LABELS[c] || c)}</th>`).join("")}</tr></thead><tbody>${rows.map((row) => `<tr class="${row.I === 30 || row.I === state.result?.internal_profile?.at(-1)?.I ? "section-boundary" : ""}">${columns.map((c) => `<td>${escapeHtml(formatters[c] ? formatters[c](row[c]) : finite(row[c]) ? fmt(row[c], ["I", "Iter", "KONVER", "轮次", "内层迭代"].includes(c) ? 0 : 3) : row[c])}</td>`).join("")}</tr>`).join("")}</tbody></table>`;
+  const host = $(id);
+  host.tabIndex = 0;
+  host.setAttribute("role", "region");
+  host.setAttribute("aria-label", `${id === 'history-table' ? '迭代' : '计算'}明细，可横向滚动`);
+  if (!rows.length) { host.textContent = "暂无数据"; return; }
+  const exits = state.result?.outlet_sections || [];
+  host.innerHTML = `<table class="detail-table"><caption>${rows.length} 条记录 · 悬停数值查看原始值</caption><thead><tr>${columns.map((c) => `<th scope="col">${columnHeading(c)}</th>`).join("")}</tr></thead><tbody>${rows.map((row) => {
+    const outlet = finite(row.I) ? exits.find((s) => s.cell === row.I) : null;
+    return `<tr class="${outlet ? 'section-boundary' : ''}">${columns.map((c, index) => {
+      let value = formatters[c] ? escapeHtml(formatters[c](row[c])) : finite(row[c]) ? numberCell(row[c], ["I", "Iter", "KONVER", "轮次", "内层迭代"].includes(c) ? 0 : c === 'T(C)' ? 2 : 3) : escapeHtml(row[c]);
+      if (c === "KONVER" && finite(row[c])) value = `<span class="table-state ${row[c] === 0 ? 'converged' : ''}" title="KONVER=${row[c]}">${row[c] === 0 ? '收敛' : '未收敛'}</span>`;
+      return index === 0 ? `<th scope="row">${value}${outlet ? `<small class="row-context">${escapeHtml(outlet.label)}</small>` : ''}</th>` : `<td>${value}</td>`;
+    }).join('')}</tr>`;
+  }).join('')}</tbody></table>`;
+}
+const OUTLET_SPECIES = ["CO", "H2", "CO2", "CH4", "N2", "H2S", "O2", "H2O"];
+function outletFlow(section, gas, unit) {
+  if (unit === "kmol/h") return section.molar_flow_kmol_h?.[gas];
+  const flow = section.volume_flow?.[gas];
+  return finite(flow) ? flow * (unit === "Nm³/h" ? 3600 : 1) : null;
+}
+function outletTotal(section, unit) {
+  if (unit === "kmol/h") return section.total_molar_kmol_h;
+  return finite(section.total_wet_nms) ? section.total_wet_nms * (unit === "Nm³/h" ? 3600 : 1) : null;
+}
+function compositionTotal(section, basis) {
+  const keys = OUTLET_SPECIES.filter((g) => basis === 'wet' || g !== 'H2O');
+  const data = section[`${basis}_composition`] || {};
+  return keys.every((g) => finite(data[g])) ? keys.reduce((sum, g) => sum + data[g], 0) : null;
+}
+function outletCsv(sections, unit) {
+  const header = ['组分', ...sections.flatMap((s) => [`${s.label} 干基 (%)`, `${s.label} 湿基 (%)`, `${s.label} 流量 (${unit})`])];
+  const rows = OUTLET_SPECIES.map((g) => [g, ...sections.flatMap((s) => [s.dry_composition?.[g], s.wet_composition?.[g], outletFlow(s,g,unit)])]);
+  rows.push(['合计', ...sections.flatMap((s) => [compositionTotal(s,'dry'), compositionTotal(s,'wet'), outletTotal(s,unit)])]);
+  rows.push(['灰质量流量 (kg/h)', ...sections.flatMap((s) => ['', '', s.ash_kg_h])]);
+  return [header,...rows].map((row) => row.map((v) => `"${String(v ?? '').replaceAll('"','""')}"`).join(',')).join('\r\n');
+}
+function downloadOutletCsv(sections) {
+  const blob = new Blob(['\ufeff',outletCsv(sections,state.flowUnit)], {type:'text/csv;charset=utf-8'});
+  const url = URL.createObjectURL(blob), link = document.createElement('a');
+  link.href = url;
+  link.download = 'outlet-comparison.csv';
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+function renderOutletMatrix(sections) {
+  const unit = state.flowUnit;
+  $('outlet-matrix').innerHTML = `<table class="outlet-matrix${sections.length === 1 ? ' single-outlet' : ''}"><caption>8 种组分 · 气体流量合计包含水蒸气；灰单独列示</caption><thead>
+    <tr class="outlet-column-groups"><th rowspan="2" scope="col">组分</th>${sections.map((s) => `<th scope="colgroup" colspan="3" class="${s.key}">${escapeHtml(s.label)}<small>${fmt(s.temperature_c,1)} ℃</small></th>`).join('')}</tr>
+    <tr>${sections.map(() => `<th scope="col" class="group-start">干基<small class="column-unit">%</small></th><th scope="col">湿基<small class="column-unit">%</small></th><th scope="col" class="flow-column">摩尔 / 标方流量<small class="column-unit">${unit}</small></th>`).join('')}</tr>
+    </thead><tbody>${OUTLET_SPECIES.map((g) => `<tr class="${g === 'H2O' ? 'water-row' : ''}"><th scope="row"><span class="species-name">${GAS_LABELS[g]}</span>${g === 'H2O' ? '<small class="row-context">水蒸气</small>' : ''}</th>${sections.map((s) => `<td class="group-start">${numberCell(s.dry_composition?.[g])}</td><td>${numberCell(s.wet_composition?.[g])}</td><td class="flow-column">${numberCell(outletFlow(s,g,unit))}</td>`).join('')}</tr>`).join('')}</tbody>
+    <tfoot><tr><th scope="row">合计</th>${sections.map((s) => `<td class="group-start">${numberCell(compositionTotal(s,'dry'))}</td><td>${numberCell(compositionTotal(s,'wet'))}</td><td class="flow-column">${numberCell(outletTotal(s,unit))}</td>`).join('')}</tr><tr class="ash-row"><th scope="row">灰<small class="column-unit">kg/h</small></th>${sections.map((s) => `<td colspan="3" class="group-start">${numberCell(s.ash_kg_h,2)}</td>`).join('')}</tr></tfoot></table>`;
+  // 列名随所选单位变化，避免将标方流量误称为摩尔流量。
+  document.querySelectorAll('#outlet-matrix thead .flow-column').forEach((cell) => {
+    cell.firstChild.textContent = unit === 'kmol/h' ? '摩尔流量' : '标方流量';
+  });
+}
+function renderOutletChart(sections) {
+  const basis = state.outletBasis, keys = OUTLET_SPECIES.filter((g) => basis === 'wet' || g !== 'H2O');
+  const traces = sections.map((s) => ({
+    type:'bar', orientation:'h', name:s.label,
+    x:keys.map((g) => finite(s[`${basis}_composition`]?.[g]) ? s[`${basis}_composition`][g] : null),
+    y:keys.map((g) => GAS_LABELS[g]),
+    marker:{color:s.key === 'rsc' ? '#5a8cbb' : '#c16b22'},
+    customdata:keys.map((g) => finite(s[`${basis}_composition`]?.[g]) ? s[`${basis}_composition`][g].toPrecision(5) : '未记录'),
+    hovertemplate:'%{y}　%{customdata}%<extra>%{fullData.name}</extra>',
+  }));
+  const spec = layout('', '体积分数 / %');
+  spec.margin = {l:40,r:16,t:12,b:72};
+  spec.barmode = 'group'; spec.bargap = .32; spec.bargroupgap = .14;
+  spec.showlegend = sections.length > 1;
+  spec.legend = {...spec.legend,y:-.2,font:{size:11}};
+  spec.hovermode = 'y unified';
+  spec.xaxis = {...spec.xaxis,showgrid:true,gridcolor:'#e8edf4',showspikes:false,rangemode:'tozero',tickformat:'.0f'};
+  spec.yaxis = {...spec.yaxis,autorange:'reversed',showgrid:false,tickmode:'array',tickvals:keys.map((g) => GAS_LABELS[g])};
+  Plotly.newPlot('plot-outlet-comparison',traces,spec,PLOT_CONFIG);
+  document.querySelectorAll('[data-outlet-basis]').forEach((button) => button.setAttribute('aria-pressed',String(button.dataset.outletBasis === basis)));
+  $('composition-basis-note').textContent = basis === 'dry' ? '干基扣除水蒸气；小组分保留真实比例。' : '湿基包含水蒸气；与下方湿基列一一对应。';
 }
 function renderOutlets(sections) {
-  const host = $("outlet-comparison");
-  document.querySelector(".comparison-key").hidden = sections.length < 2;
-  if (!sections.length) {
-    host.textContent = "没有可用的出口截面数据，请重新运行模拟。";
-    return;
-  }
-  host.innerHTML = sections
-    .map(
-      (s, i) => `<section class="panel outlet-card ${s.key}">
-    <div class="outlet-heading"><div><span class="outlet-position">第 ${s.cell} 格</span><h2>${escapeHtml(s.label)}</h2></div><div class="outlet-temperature">${fmt(s.temperature_c, 1)}<small>°C</small></div></div>
-    <div class="outlet-stats"><div><span>干基总流量</span><strong>${fmt(s.total_dry_nms, 3)}<small>Nm³/s</small></strong></div><div><span>H₂ / CO</span><strong>${fmt(s.h2_co_ratio, 3)}</strong></div></div>
-    <div class="chart-heading">干基组成 <span>体积分数 / %</span></div><div class="plot outlet-plot" id="plot-outlet-${i}"></div>
-    <div class="table-wrap outlet-table" id="table-outlet-${i}"></div>
-    <div class="outlet-footer"><span>湿基总流量（含 H₂O）</span><strong>${fmt(s.total_wet_nms, 3)} Nm³/s</strong><small>${fmt(finite(s.total_wet_nms) ? s.total_wet_nms * 3600 : null, 1)} Nm³/h</small></div>
-    <div class="outlet-solids"><span>灰质量流量</span><strong>${fmt(s.ash_kg_h, 2)} <small>kg/h</small></strong><span>有效气量 CO＋H₂</span><strong>${fmt(s.effective_gas_nmh, 1)} <small>Nm³/h</small></strong></div>
-    ${finite(s.ash_kg_h) ? "" : '<p class="section-note">历史输出未记录灰流量，重新计算后显示。</p>'}
-    ${Object.keys(s.volume_flow).length ? "" : '<p class="section-note">此历史输出缺少该出口流量，请重新计算补全。</p>'}
-  </section>`,
-    )
-    .join("");
-  const maximum =
-    Math.max(
-      1,
-      ...sections.flatMap((s) =>
-        Object.values(s.dry_composition).filter(finite),
-      ),
-    ) * 1.23;
-  sections.forEach((s, i) => {
-    plotBar(`plot-outlet-${i}`, s.dry_composition, "%", true, maximum);
-    const keys = ["CO", "H2", "CO2", "CH4", "N2", "H2S", "O2", "H2O"];
-    renderTable(
-      `table-outlet-${i}`,
-      ["组分", "干基 (%)", "湿基 (%)", "流量 (Nm³/s)", "摩尔流量 (kmol/h)"],
-      keys.map((g) => ({
-        组分: GAS_LABELS[g],
-        "干基 (%)": s.dry_composition[g],
-        "湿基 (%)": s.wet_composition[g],
-        "流量 (Nm³/s)": s.volume_flow[g],
-        "摩尔流量 (kmol/h)": s.molar_flow_kmol_h?.[g],
-      })),
-    );
-  });
+  const host = $('outlet-comparison');
+  document.querySelector('.comparison-key').hidden = true;
+  if (!sections.length) { host.textContent = '没有可用的出口截面数据，请重新运行模拟。'; return; }
+  host.innerHTML = `<div class="outlet-analysis panel">
+    <section class="composition-comparison" aria-label="出口组成对比"><div class="data-panel-heading"><h3>组成对比</h3><div class="segmented" role="group" aria-label="组成基准"><button type="button" data-outlet-basis="dry">干基</button><button type="button" data-outlet-basis="wet">湿基</button></div></div><div id="plot-outlet-comparison" class="plot comparison-plot"></div><p id="composition-basis-note" class="chart-note"></p></section>
+    <div class="outlet-readouts">${sections.map((s) => `<section class="outlet-readout ${s.key}"><div class="readout-heading"><h3>${escapeHtml(s.label)}<small>第 ${s.cell} 格</small></h3><strong>${fmt(s.temperature_c,1)}<small>℃</small></strong></div><dl><div><dt>干基气量 <small>Nm³/h</small></dt><dd>${numberCell(finite(s.total_dry_nms) ? s.total_dry_nms * 3600 : null,1)}</dd></div><div><dt>有效气量 <small>CO＋H₂ · Nm³/h</small></dt><dd>${numberCell(s.effective_gas_nmh,1)}</dd></div><div><dt>H₂ / CO</dt><dd>${numberCell(s.h2_co_ratio,3)}</dd></div><div><dt>灰质量流量 <small>kg/h</small></dt><dd>${numberCell(s.ash_kg_h,2)}</dd></div></dl></section>`).join('')}</div>
+    </div><section class="panel outlet-data-panel"><div class="data-panel-heading"><div><h3>组分与流量明细</h3><p>同一组分横向比较；悬停数值查看原始值。</p></div><div class="table-actions"><label for="outlet-flow-unit">流量单位</label><select id="outlet-flow-unit"><option>kmol/h</option><option>Nm³/h</option><option>Nm³/s</option></select><button class="btn btn-outline btn-small" id="download-outlets">下载 CSV</button></div></div><div class="table-wrap" id="outlet-matrix" tabindex="0" role="region" aria-label="出口组分对照表，可横向滚动"></div><p class="table-footnote">— 表示未记录或不适用；微量非零数使用科学计数法。下载保留原始精度。</p></section>`;
+  $('outlet-flow-unit').value = state.flowUnit;
+  $('outlet-flow-unit').addEventListener('change', (event) => {state.flowUnit = event.target.value; renderOutletMatrix(sections);});
+  $('download-outlets').addEventListener('click', () => downloadOutletCsv(sections));
+  document.querySelectorAll('[data-outlet-basis]').forEach((button) => button.addEventListener('click', () => {state.outletBasis = button.dataset.outletBasis; renderOutletChart(sections);}));
+  renderOutletChart(sections);
+  renderOutletMatrix(sections);
 }
 function renderFeedDesign(design) {
   $("feed-design-result").hidden = !design;
@@ -854,6 +944,7 @@ function renderTab(id) {
     plotLine("plot-history-t", hist, ["SUMT"], "温度修正量 (K)", {
       x: "Iter",
       log: true,
+      legendSpace: true,
       color: "#c16b22",
     });
     renderTable(
@@ -882,8 +973,8 @@ function renderTab(id) {
       ["I", "H(m)", "U0(m/s)", "ResidenceTime(s)", "WE(kg/s)", "T(C)", "X(%)"],
       internal,
     );
-    plotLine("plot-gas-main", gas, ["CO", "H2", "CO2", "CH4"], "体积分数 (%)");
-    plotLine("plot-gas-other", gas, ["O2", "H2O", "N2", "H2S"], "体积分数 (%)");
+    plotLine("plot-gas-main", gas, ["CO", "H2", "CO2", "H2O"], "体积分数 (%)");
+    plotLine("plot-gas-other", gas, ["CH4", "N2", "H2S", "O2"], "体积分数 (%)");
     renderTable(
       "gas-table",
       ["I", "O2", "CH4", "CO", "CO2", "H2S", "H2", "N2", "H2O"],
