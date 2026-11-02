@@ -41,7 +41,8 @@ def xmass(cells=None):
     for i in cells:
         # 气体密度 [kg/m^3]
         # ROG(I) = 353.5 / T(I)
-        # Note: 353.5 = P0*M_air/(R*T0) for standard conditions
+        # 历史空气代理关系：353.5 近似 P0*M_air/R（无 T0 因子）。
+        # 不是当前压力/组分的合成气密度；属待校准模型近似，不能靠增加常数小数位修复。
         common.ROG[i] = 353.5 / common.T[i]
         
         # 计算FOC (考虑碳转化率对密度的影响)

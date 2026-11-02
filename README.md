@@ -10,7 +10,7 @@ Fortran 水煤浆气化炉程序的 Python 移植与晋华炉扩展，采用一�
 
 当前输入 `data/Datain0.dat` 采用 30 格 RSC、高度 30 m、直径 2.6 m、汽包压力 6.5 MPa、给水 423.15 K。TW_WALL=1773 K、TW_RSC=673 K 为有效表面温度，不是金属管壁温度。
 
-2026-11-02独立[元素守恒实验](docs/ELEMENT_BALANCE_EXPERIMENT.md)发现：当前RSC源项与基础方程缩放不一致，典型工况燃烧室守恒、废锅C/H/O不守恒。候选修正已在隔离副本恢复闭合，本次尚未修改正式方程；现有废锅结果需要修正后重新验证，不能以数值收敛代替物理守恒检查。
+2026-11-02已正式修复RSC反应源项缩放引起的元素缺口，并统一晋华炉物理常数及汽水侧IF97物性。7组固定进料和联合设计均通过三截面元素核算；典型新结果为燃烧室1232.374℃、废锅791.480℃、废锅产汽30.465 t/h。旧756.86℃、24.32 t/h不能继续作为正确基准。详见[修复验收报告](docs/ELEMENT_BALANCE_FIX.md)和[常数来源及适用边界](docs/PHYSICAL_CONSTANTS.md)；[原始缺陷证据](docs/ELEMENT_BALANCE_EXPERIMENT.md)保留。
 
 ## 安装与运行
 
@@ -31,7 +31,7 @@ Streamlit 默认端口 8501，Flask 默认监听 `127.0.0.1:5000`。同一个项
 
 `KTRL=1` 使用默认初值；`KTRL=0` 优先读取工作目录的 START.DAT，找不到时读取输入文件同目录的 START.DAT。重启文件必须与本次网格一致，支持 Fortran D 指数；无效文件会明确报错。
 
-晋华炉默认通过 SciPy/LAPACK 求解带状线性系统，并复用局部物性；微量残碳使用相对差分步长，收敛阈值保持不变。更新后请重新安装 `requirements.txt`（新增 SciPy）。本机典型 60 格正算由约161秒降至约9秒；TEXACO 默认保留旧线性后端和逐位基准。方法、实际工况对比及复现命令见 [求解性能与稳定性](docs/SOLVER_PERFORMANCE.md)。
+晋华炉默认通过 SciPy/LAPACK 求解带状线性系统，并复用局部物性；微量残碳使用相对差分步长，收敛阈值保持不变。更新后请重新安装 `requirements.txt`（包含SciPy及新增iapws）。本机典型60格正算约9秒；TEXACO默认保留旧线性后端和逐位基准。历史加速对比及复现命令见 [求解性能与稳定性](docs/SOLVER_PERFORMANCE.md)。
 
 ## 输入与单位
 
@@ -58,7 +58,7 @@ Streamlit 默认端口 8501，Flask 默认监听 `127.0.0.1:5000`。同一个项
 
 两处合成气表均增加摩尔流量 kmol/h，并单列灰质量流量 kg/h。摩尔流量取 FEMF×3600；灰取 WE×(1−X)×3600，不包含未反应碳。新输出通过 `OUTLET_FLOWS_JSON` 保存精确截面数据；历史输出可用标准体积流量换算摩尔流量，缺失灰量显示“—”，需重新计算补全。
 
-`BSLURRY` 是水煤浆总质量流量（kg/s）；`RATIO_COAL` 是煤的质量分数（0–1），干煤量为两者乘积。气体摩尔流量单位 kmol/s，标准体积沿用原程序 22.4 m³/kmol 近似。`X` 是固体碳质量分数，输出的碳转化率由它与固体流量换算。
+`BSLURRY` 是水煤浆总质量流量（kg/s）；`RATIO_COAL` 是煤的质量分数（0–1），煤内水按ELH2O单独计入。气体摩尔流量单位kmol/s；晋华炉标方采用0℃/101325 Pa理想气体摩尔体积22.413969545014 Nm³/kmol，TEXACO对照模式及旧结果仍用22.4。新结果记录当次换算基准。`X` 是固体碳质量分数，输出的碳转化率由它与固体流量换算。
 
 气体编号：1 O₂、2 CH₄、3 CO、4 CO₂、5 H₂S、6 H₂、7 N₂、8 H₂O。ENTHP 返回 J/kmol 并包含生成焓；通过组分变化反映反应热，不另行叠加同一反应热。
 
@@ -72,7 +72,8 @@ Streamlit 默认端口 8501，Flask 默认监听 `127.0.0.1:5000`。同一个项
 | `src/subroutines/gasifier_main.py` | 守恒方程、壁面热汇、RSC 松弛反应及数值雅可比 |
 | `src/functions/math_utils.py` | 块三对角求解与变量更新 |
 | `src/subroutines/output_results.py` | 派生量刷新、结果、重启文件及平衡诊断 |
-| `src/functions/steam_props.py` | 简化蒸汽物性与热回收产汽 |
+| `src/common/physical_constants.py` | 原子量/摩尔质量、物理常数、标方及兼容配置 |
+| `src/functions/steam_props.py` | IAPWS-IF97汽包/给水物性与热回收产汽 |
 | `src/functions/rsc_design.py` | 目标出口温度的有界高度搜索与设计状态 |
 | `src/functions/feed_design.py` | 燃烧室温度与有效气量的双变量进料反算 |
 | `app.py` | Streamlit 界面 |
@@ -89,6 +90,6 @@ Streamlit 默认端口 8501，Flask 默认监听 `127.0.0.1:5000`。同一个项
 
 界面中传统称为“残差”的 SUMFE/SUMWE/SUMX/SUMT 是牛顿修正量绝对值和，收敛阈值取输入第 2 行。修正量收敛不等同于独立的元素、能量闭合验证。
 
-RSC 的平衡常数近似、逐格松弛系数、有效壁温以及 4–10 MPa 蒸汽关联式均需工程标定。本仓库的数值回归不证明工业工况精度；目前不再宣称蒸汽关联式全范围误差小于 2%。其余 `docs/code_reference` 与旧 TODO 为历史移植参考，当前结构与行为以代码、AGENTS.md 和最新审查报告为准。
+汽水侧IF97已通过官方数值校核点；RSC平衡近似、逐格松弛系数、有效壁温、气侧历史热力学及密度/粘度近似仍需工程验证。数值守恒不证明工业预测精度，也不替代独立能量闭合。XVM=0边界目前未通过全炉收敛验收。`docs/code_reference` 与旧TODO为历史移植参考，当前结构与行为以代码、AGENTS.md及最新修复报告为准。
 
 MIT 许可证，见 LICENSE。

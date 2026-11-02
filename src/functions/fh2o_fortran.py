@@ -4,11 +4,12 @@ Fortran FH2O函数的完整Python移植
 """
 import numpy as np
 
-# 常量定义
-TKRIT = 647.3      # 临界温度 (K)
-PKRIT = 221.287    # 临界压力 (bar)
+# 原水表拟合归一化参数，与下列整套系数绑定；不是新的推荐临界物性。
+# 汽包/给水侧现代IF97独立实现在steam_props.py，不能局部替换这里的归一化尺度。
+TKRIT = 647.3      # 历史临界温度尺度 (K)
+PKRIT = 221.287    # 历史临界压力尺度 (bar)
 TTR = 273.16       # 三相点温度 (K)
-MH2O = 18.0153     # 水的摩尔质量 (kg/kmol)
+MH2O = 18.0153     # TEXACO旧水表摩尔质量；晋华炉换算使用common.MH2O
 T800C = 1073.15    # 800摄氏度 (K)
 IH = 221.287e+02   # 常数
 IS = 34.1862       # 常数
@@ -130,6 +131,8 @@ def fh2o_fortran_complete(temp, ppp, x, iagg, kalzg):
         - 'SCHM': 熔点温度 (K)
     """
     import math
+    from common.common_data import common
+    m_water = MH2O if common.KMODEL == 0 else common.MH2O
     
     pp = ppp / 1.0e05  # 转换为bar
     T = temp / TKRIT
@@ -215,10 +218,10 @@ def fh2o_fortran_complete(temp, ppp, x, iagg, kalzg):
             
             # 高温修正
             if temp > T800C:
-                E = E + (cmp_fortran(ACP, BCP, CCP, DCP, temp, T800C) / MH2O)
+                E = E + (cmp_fortran(ACP, BCP, CCP, DCP, temp, T800C) / m_water)
             
             # 转换为J/kmol
-            fh2o_val = E * MH2O * 1.0e-03 - 288.416
+            fh2o_val = E * m_water * 1.0e-03 - 288.416
             fh2o_val = fh2o_val * 1.0e06
             return fh2o_val
         
@@ -235,9 +238,9 @@ def fh2o_fortran_complete(temp, ppp, x, iagg, kalzg):
             E = E + AS_COEF[0] * math.log(T) + AS_COEF[1] + AS_COEF[2] * T + AS_COEF[3] * T2 + AS_COEF[4] * T3
             
             if temp > T800C:
-                E = E + (cmpt_fortran(ACP, BCP, CCP, DCP, temp, T800C) / MH2O)
+                E = E + (cmpt_fortran(ACP, BCP, CCP, DCP, temp, T800C) / m_water)
             
-            fh2o_val = (E + 3.5214) * MH2O
+            fh2o_val = (E + 3.5214) * m_water
             return fh2o_val
     
     elif iagg == 'L   ':
@@ -266,7 +269,7 @@ def fh2o_fortran_complete(temp, ppp, x, iagg, kalzg):
                 E = E + BH[i] * (T ** BEX)
             
             # 转换为J/kmol
-            fh2o_val = E * MH2O * 1.0e-03 - 288.416
+            fh2o_val = E * m_water * 1.0e-03 - 288.416
             fh2o_val = fh2o_val * 1.0e06
             return fh2o_val
     
@@ -275,7 +278,7 @@ def fh2o_fortran_complete(temp, ppp, x, iagg, kalzg):
         if kalzg == 'ENTH':
             E = -633. + temp * (0.19780624 + temp * (0.79979727e-04 + temp *
                      (0.23699831e-04 + temp * (-0.43875026e-07))))
-            fh2o_val = E * MH2O * 1.0e-03 - 288.416
+            fh2o_val = E * m_water * 1.0e-03 - 288.416
             fh2o_val = fh2o_val * 1.0e06
             return fh2o_val
     

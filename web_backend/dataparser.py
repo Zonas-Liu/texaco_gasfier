@@ -133,7 +133,7 @@ DEFAULT_PARAMS.update(FEED_MODE=0, T_CHAMBER_C=1228.0, EFFECTIVE_GAS_NMH=49600.0
 for name, cn, unit, desc in [
     ('FEED_MODE', '进料计算模式', '', '按燃烧室出口温度与 CO+H₂ 标方流量反算氧煤比和水煤浆总量'),
     ('T_CHAMBER_C', '目标燃烧室出口温度', '℃', '允许温差 ±0.5 ℃'),
-    ('EFFECTIVE_GAS_NMH', '目标有效气量（CO＋H₂）', 'Nm³/h', '燃烧室出口；沿用模型 22.4 Nm³/kmol；允许误差为目标的 0.1%（最小 1 Nm³/h）'),
+    ('EFFECTIVE_GAS_NMH', '目标有效气量（CO＋H₂）', 'Nm³/h', '燃烧室出口；0℃、101.325 kPa，晋华炉约22.41397 Nm³/kmol；允许误差为目标的 0.1%（最小 1 Nm³/h）'),
     ('FOXY_MIN', '氧煤比搜索下限', 'kg O₂/kg BSWAF', '纯氧 / 无水无灰煤'),
     ('FOXY_MAX', '氧煤比搜索上限', 'kg O₂/kg BSWAF', '纯氧 / 无水无灰煤'),
     ('SLURRY_MIN', '煤浆量搜索下限', 'kg/s', '水煤浆总量，包含煤和水'),
@@ -456,9 +456,11 @@ def parse_outlet_sections(text, result):
         if cell == last and result["syngas_composition"]:
             dry = dict(result["syngas_composition"])
         point = exact.get(str(cell), {})
-        molar = point.get('molar_flow_kmol_h', {g: v * 3600 / 22.4 for g, v in flow.items()})
+        # 新结果携带标方基准；旧文件缺失时仍沿用22.4，不能套用当前输入。
+        vm_normal = point.get('normal_molar_volume_nm3_kmol', 22.4)
+        molar = point.get('molar_flow_kmol_h', {g: v * 3600 / vm_normal for g, v in flow.items()})
         if point:
-            flow = {g: v * 22.4 / 3600 for g, v in molar.items()}
+            flow = {g: v * vm_normal / 3600 for g, v in molar.items()}
             all_moles = sum(molar.values())
             dry_moles = all_moles - molar['H2O']
             wet = {g: v / all_moles * 100 if all_moles else None for g, v in molar.items()}
@@ -472,6 +474,8 @@ def parse_outlet_sections(text, result):
             "volume_flow": flow, "total_dry_nms": total_dry, "total_wet_nms": total_wet,
             'molar_flow_kmol_h': molar, 'total_molar_kmol_h': sum(molar.values()) if molar else None,
             'ash_kg_h': point.get('ash_kg_h'),
+            'normal_molar_volume_nm3_kmol': vm_normal,
+            'constants_basis': point.get('constants_basis', 'historical-22.4'),
             'effective_gas_nmh': (flow['CO'] + flow['H2']) * 3600 if flow else None,
             "h2_co_ratio": dry["H2"] / dry["CO"] if dry.get("CO") else None,
         })

@@ -1,4 +1,4 @@
-"""进口/燃烧室/废锅独立元素衡算；所有求解及候选修正都在隔离目录。
+"""进口/燃烧室/废锅独立元素衡算；所有求解都在隔离目录。
 
 只读取完整精度状态，不调用 KONTR 或由干基百分比反推质量。
 运行：python numeric_test/check_element_balance.py --output numeric_test/python_output/element-balance
@@ -8,7 +8,6 @@ import hashlib
 import json
 import os
 from pathlib import Path
-import shutil
 import subprocess
 import sys
 
@@ -28,9 +27,18 @@ ELEMENT_MATRIX = np.array([
 ], dtype=float)
 
 
-def elemental_stream(gas_kmol_s, solid_kg_s=0.0, carbon_fraction=0.0):
+def _atomic(state):
+    # 状态文件明确保存运行所用原子量；历史文件没有该字段则用旧整数基准。
+    return np.array([float(state.get(k, old)) for k, old in zip(
+        ('MC', 'MH', 'MO', 'MN', 'MS'), (12., 1., 16., 14., 32.))])
+
+
+def elemental_stream(gas_kmol_s, solid_kg_s=0.0, carbon_fraction=0.0, atoms=None):
     """气相全部八组分＋固体残碳/灰，返回六项 kg/h。"""
-    result = ELEMENT_MATRIX @ np.asarray(gas_kmol_s, dtype=float)
+    matrix = ELEMENT_MATRIX.copy()
+    if atoms is not None:
+        matrix[:5] *= (np.asarray(atoms) / np.array([12., 1., 16., 14., 32.]))[:, None]
+    result = matrix @ np.asarray(gas_kmol_s, dtype=float)
     result[0] += solid_kg_s * carbon_fraction
     result[5] += solid_kg_s * (1 - carbon_fraction)
     return result * 3600
@@ -42,20 +50,22 @@ def inlet_components(state):
     保留输入煤分析基准，不归一化；ELH2O 的水单独分配给 H/O。
     各燃烧室进料点一并计入，冷却水/副产蒸汽属于独立公用工程侧。
     """
+    atoms = _atomic(state)
+    mc, mh, mo, mn, ms = atoms
     coal = float(state['BSLURRY'] * state['RATIO_COAL'])
     coal_elements = coal * np.array([float(state[k]) for k in ('ELC', 'ELH', 'ELO', 'ELN', 'ELS', 'ELAS')]) * 3600
     water = float(state['BSLURRY'] * (1 - state['RATIO_COAL']) + coal * state['ELH2O'])
     water_gas = np.zeros(8)
-    water_gas[7] = water / 18
+    water_gas[7] = water / (2*mh + mo)
     oxidant_gas = np.zeros(8)
     # 从输入氧煤比、纯度和分析值计算总物理进料，独立于源项分配数组。
-    pure_o2 = float(state['FOXY']) * coal * (1 - float(state['ELH2O']) - float(state['ELAS'])) / 32
+    pure_o2 = float(state['FOXY']) * coal * (1 - float(state['ELH2O']) - float(state['ELAS'])) / (2*mo)
     oxygen_stream = pure_o2 / float(state['PURE_O2'])
     oxidant_gas[0] = pure_o2
     oxidant_gas[6] = oxygen_stream * (1 - float(state['PURE_O2']))
     oxidant_gas[3] = oxygen_stream * float(state['RATIO_CO2'])
-    return {'coal': coal_elements, 'water': elemental_stream(water_gas),
-            'oxidant_and_co2': elemental_stream(oxidant_gas)}
+    return {'coal': coal_elements, 'water': elemental_stream(water_gas, atoms=atoms),
+            'oxidant_and_co2': elemental_stream(oxidant_gas, atoms=atoms)}
 
 
 def rsc_rates(state):
@@ -75,13 +85,14 @@ def rsc_rates(state):
     return rates
 
 
-def ledger(state):
+def ledger(state, *, consistent_scaling=True):
     """输出逐格元素流及三截面差值；审计容差与求解器容差相互独立。"""
     if int(state['KMODEL']) != 1 or int(state['KCHECK']) != 0:
         raise ValueError('此实验针对晋华炉正常模式 KMODEL=1、KCHECK=0')
+    atoms = _atomic(state)
     inputs = inlet_components(state)
     inlet = sum(inputs.values())
-    flows = np.array([elemental_stream(state['FEMF'][1:9, i], state['WE'][i], state['X'][i])
+    flows = np.array([elemental_stream(state['FEMF'][1:9, i], state['WE'][i], state['X'][i], atoms)
                       for i in range(1, int(state['NZRE']) + 1)])
     chamber = flows[int(state['NZRC']) - 1]
     outlet = flows[-1]
@@ -97,14 +108,14 @@ def ledger(state):
     rates = rsc_rates(state)
     sw, sm = sum(r[1] for r in rates), sum(r[2] for r in rates)
     # 原实现：CO2 基础方程 /1.2 后再加 rw；H2 基础方程 *1.02 后再加 rw-3rm。
-    predicted = np.array([12 * .2 * sw, 2 * (1/1.02 - 1) * (sw - 3*sm), 32 * .2 * sw, 0, 0, 0]) * 3600
+    predicted = np.zeros(6) if consistent_scaling else np.array([atoms[0] * .2 * sw, 2*atoms[1] * (1/1.02 - 1) * (sw - 3*sm), 2*atoms[2] * .2 * sw, 0, 0, 0]) * 3600
     rows = []
     for i, flow in enumerate(flows, 1):
         previous = inlet if i == 1 else flows[i-2]
         # 第1格尚未加入二次氧；仅把31..NZRE的逐格差用于RSC无进料诊断。
         rows.append(dict(cell=i, elements_kg_h=flow.tolist(),
                          adjacent_delta_kg_h=(flow-previous).tolist()))
-    return dict(elements=list(ELEMENTS), units='kg/h', atomic_weights='C12 H1 O16 N14 S32',
+    return dict(elements=list(ELEMENTS), units='kg/h', atomic_weights=dict(zip(ELEMENTS[:5], atoms.tolist())),
         input_components_kg_h={k:v.tolist() for k,v in inputs.items()}, inlet_kg_h=inlet.tolist(),
         chamber_kg_h=chamber.tolist(), rsc_kg_h=outlet.tolist(),
         chamber_temperature_c=float(state['T'][int(state['NZRC'])]-273.15),
@@ -112,12 +123,12 @@ def ledger(state):
         tolerance_kg_h=tolerance.tolist(), comparisons=comparisons,
         total_mass_kg_h=dict(inlet=float(inlet.sum()), chamber=float(chamber.sum()), rsc=float(outlet.sum())),
         sum_rsc_wgs_kmol_s=sw, sum_rsc_meth_kmol_s=sm,
-        predicted_original_scaling_defect_kg_h=predicted.tolist(),
+        predicted_scaling_defect_kg_h=predicted.tolist(),
         prediction_gap_kg_h=(outlet-chamber-predicted).tolist(), cells=rows,
         rsc_rates=[dict(cell=i, wgs_kmol_s=w, meth_kmol_s=m) for i,w,m in rates])
 
 
-def run_case(name, source, destination, original_input, updates, backend='scipy', candidate=False):
+def run_case(name, source, destination, original_input, updates, backend='scipy'):
     sys.path.insert(0, str(ROOT))
     from web_backend.dataparser import parse_datain0, write_datain0
     folder = destination / name
@@ -137,10 +148,7 @@ def run_case(name, source, destination, original_input, updates, backend='scipy'
         raise RuntimeError(f'{name} 未收敛，不能验收元素衡算：{folder}')
     with np.load(folder/'state.npz') as state:
         result = ledger(state)
-    result.update(case=name, timing=timing, linear_backend=backend, candidate_only=candidate,
-                  original_scaling_prediction_applicable=not candidate)
-    if candidate:
-        result['prediction_gap_kg_h'] = None  # 原缺陷公式不适用于修正后的方程
+    result.update(case=name, timing=timing, linear_backend=backend)
     (folder/'element_balance.json').write_text(json.dumps(result, ensure_ascii=False, indent=2)+'\n', encoding='utf-8')
     print(json.dumps(dict(case=name, chamber_pass=result['comparisons']['inlet_to_chamber']['passed'],
         rsc_pass=result['comparisons']['chamber_to_rsc']['passed'],
@@ -148,35 +156,32 @@ def run_case(name, source, destination, original_input, updates, backend='scipy'
     return result
 
 
-def run_experiment(destination, input_path):
+def run_experiment(destination, input_path, selected=None):
     destination.mkdir(parents=True, exist_ok=True)
-    # 先记录原模型，再进行控制变量实验；候选修正只写入实验副本。
-    cases = [run_case('baseline', ROOT, destination, input_path, {}),
-        run_case('tighter', ROOT, destination, input_path,
-                 dict(ITMAX=200, SKONFE=1e-8, SKONWE=1e-8, SKONX=1e-8, SKONT=1e-5)),
-        run_case('legacy', ROOT, destination, input_path, {}, backend='legacy'),
-        run_case('no-rsc-relax', ROOT, destination, input_path, dict(KRELAX_WGS=0, KRELAX_METH=0))]
-    candidate = destination/'candidate_source'
-    shutil.copytree(ROOT/'src', candidate/'src', dirs_exist_ok=True, ignore=shutil.ignore_patterns('__pycache__'))
-    path = candidate/'src/subroutines/gasifier_main.py'
-    original = path.read_text(encoding='utf-8')
-    replacements = {
-        'common.DMAT[4, i] += r_wgs ': 'common.DMAT[4, i] += r_wgs / 1.2 ',
-        'common.DMAT[6, i] += r_wgs - 3.0 * r_meth ': 'common.DMAT[6, i] += (r_wgs - 3.0 * r_meth) * 1.02 ',
+    wet_coal = {k:v*.98 for k,v in dict(ELC=.6802, ELH=.0404, ELO=.0985, ELN=.0249, ELS=.006, ELAS=.15).items()}
+    wet_coal['ELH2O'] = .02
+    variants = {
+        'baseline': {},
+        'tighter': dict(ITMAX=200, SKONFE=1e-8, SKONWE=1e-8, SKONX=1e-8, SKONT=1e-5),
+        'legacy': {},
+        'no-rsc-relax': dict(KRELAX_WGS=0, KRELAX_METH=0),
+        'secondary-co2': dict(OX_PART=.9, RATIO_CO2=.05),
+        'wet-coal': wet_coal,
+        'zero-volatiles': dict(XVM=0),
+        'rsc-one': dict(N_RSC=1),
     }
-    changed = original
-    for old, new in replacements.items():
-        if changed.count(old) != 1:
-            raise RuntimeError('候选修正上下文已变，需重新审查源项缩放')
-        changed = changed.replace(old, new)
-    path.write_text(changed, encoding='utf-8')
-    candidate_result = run_case('consistent-rsc-scaling', candidate, destination, input_path, {}, candidate=True)
-    cases.append(candidate_result)
-    compact = [{k:v for k,v in case.items() if k not in ('cells', 'rsc_rates')} for case in cases]
+    cases = []
+    # XVM=0 是可选诊断：默认输入的该边界在100次内未收敛，不列入已验收工况。
+    for name in (selected or [n for n in variants if n != 'zero-volatiles']):
+        result = run_case(name, ROOT, destination, input_path, variants[name],
+                          backend='legacy' if name == 'legacy' else 'scipy')
+        if not all(item['passed'] for item in result['comparisons'].values()):
+            raise AssertionError(f'{name}: 元素不守恒，详见element_balance.json')
+        cases.append(result)
     report = dict(input_sha256=hashlib.sha256(input_path.read_bytes()).hexdigest(),
         source_commit=subprocess.check_output(['git','rev-parse','HEAD'], cwd=ROOT, text=True).strip(),
-        mode='给定进料、固定高度、KTRL=1；不读取根目录START', cases=compact,
-        candidate_replacements=replacements)
+        mode='给定进料、固定高度、KTRL=1；不读取根目录START',
+        cases=[{k:v for k,v in case.items() if k not in ('cells', 'rsc_rates')} for case in cases])
     (destination/'summary.json').write_text(json.dumps(report, ensure_ascii=False, indent=2)+'\n', encoding='utf-8')
     return report
 
@@ -184,6 +189,7 @@ def run_experiment(destination, input_path):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--input', type=Path, default=ROOT/'data/Datain0.dat')
-    parser.add_argument('--output', type=Path, default=ROOT/'numeric_test/python_output/element-balance')
+    parser.add_argument('--output', type=Path, default=ROOT/'numeric_test/python_output/element-balance-fixed')
+    parser.add_argument('--cases', nargs='+')
     args = parser.parse_args()
-    run_experiment(args.output.resolve(), args.input.resolve())
+    run_experiment(args.output.resolve(), args.input.resolve(), args.cases)

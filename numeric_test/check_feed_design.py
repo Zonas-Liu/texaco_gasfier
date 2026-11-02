@@ -48,7 +48,7 @@ def run_case(name, updates, expected=0):
         slurry = feed.get('slurry_kg_s', params['BSLURRY'])
         if data['convergence_history'][-1]['KONVER'] == 0:
             assert abs(section['ash_kg_h'] - slurry * params['RATIO_COAL'] * params['ELAS'] * 3600) < .02
-        assert abs(section['total_molar_kmol_h'] * 22.4 / 3600 - section['total_wet_nms']) < 1e-9
+        assert abs(section['total_molar_kmol_h'] * section['normal_molar_volume_nm3_kmol'] / 3600 - section['total_wet_nms']) < 1e-9
     report = dict(name=name, returncode=proc.returncode, feed=feed, rsc=data.get('rsc_design'),
                   outlets=data['outlet_sections'], iterations=data['convergence_history'][-1]['Iter'])
     (folder / 'report.json').write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding='utf-8')

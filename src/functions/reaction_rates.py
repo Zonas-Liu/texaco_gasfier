@@ -15,6 +15,7 @@ TEXACO气化炉CFD模拟 - 反应速率和热力学性质计算模块
 
 import numpy as np
 from common.common_data import common
+from common.physical_constants import LEGACY_HEAT_CAPACITY_CAL_FACTOR
 
 
 # ============================================================================
@@ -143,7 +144,7 @@ def XKC_O2(I: int) -> float:
     XKC = YY * YY / (1.0 / RKCH + YY * YY / RKDG + 1.0 / RKDA * (YY - YY * YY))
     
     # 单位转换: g/(cm^2·atm·s) -> kmol/(m^2·Pa·s)
-    XKC = XKC * 10.0 / 1.01325e5 / 12.0
+    XKC = XKC * 10.0 / common.P0 / common.MC
     
     return XKC
 
@@ -199,7 +200,7 @@ def XKC_H2O(I: int) -> float:
     XKC = YY * YY / (1.0 / RKCH + YY * YY / RKDG + 1.0 / RKDA * (YY - YY * YY))
     
     # 单位转换
-    XKC = XKC * 10.0 / 1.01325e5 / 12.0
+    XKC = XKC * 10.0 / common.P0 / common.MC
     
     return XKC
 
@@ -255,7 +256,7 @@ def XKC_CO2(I: int) -> float:
     XKC = YY * YY / (1.0 / RKCH + YY * YY / RKDG + 1.0 / RKDA * (YY - YY * YY))
     
     # 单位转换
-    XKC = XKC * 10.0 / 1.01325e5 / 12.0
+    XKC = XKC * 10.0 / common.P0 / common.MC
     
     return XKC
 
@@ -303,7 +304,7 @@ def XKC_H2(I: int) -> float:
     XKC = YY * YY / (1.0 / RKCH + YY * YY / RKDG + 1.0 / RKDA * (YY - YY * YY))
     
     # 单位转换
-    XKC = XKC * 10.0 / 1.01325e5 / 12.0
+    XKC = XKC * 10.0 / common.P0 / common.MC
     
     return XKC
 
@@ -517,7 +518,7 @@ def A5(I: int) -> float:
         return 0.0
     
     # 反应速率计算
-    rate = FW * 2.877e5 * (common.Y[3] - XCO0) * np.exp(-27760.0 / 1.987 / TM)
+    rate = FW * 2.877e5 * (common.Y[3] - XCO0) * np.exp(-27760.0 / common.RCAL / TM)
     rate = rate * (common.PWK / common.P0) ** (0.5 - common.PWK / common.P0 / 250.0) * np.exp(-8.91 + 5553.0 / TM)
     rate = rate * common.XMS[I] * (1.0 - common.X[I]) * common.CTRL_A5
     
@@ -540,8 +541,8 @@ def RI(I: int) -> float:
     # 更新气体摩尔分数
     _update_gas_fractions(I)
     
-    # 总反应速率 (kmol/s)，乘以12.0转换为 kg/s
-    total_rate = (A1(I) + A2(I) + A3(I) + A4(I)) * 12.0
+    # 总反应速率 (kmol/s)，乘以本次采用的碳摩尔质量转换为 kg/s
+    total_rate = (A1(I) + A2(I) + A3(I) + A4(I)) * common.MC
     
     return total_rate
 
@@ -565,7 +566,7 @@ def CMP(A: float, B: float, C: float, D: float, T: float, T0: float) -> float:
     Returns:
         积分值 [kJ/kmol]
     """
-    result = 4.186 * (
+    result = LEGACY_HEAT_CAPACITY_CAL_FACTOR * (
         A * (T - T0) +
         B * 0.05 * (T * T * 0.01 - T0 * T0 * 0.01) -
         C * (1.0e5 / T - 1.0e5 / T0) +
@@ -601,7 +602,7 @@ def CMP_SOLID(A: float, B: float, C: float, D: float, T: float, T0: float) -> fl
     term_c = -C * (1.0e5 / T - 1.0e5 / T0)
     term_d = D / 3.0 * ((0.01 * T)**3 - (0.01 * T0)**3)
     
-    result = 4.186 * (term_a + term_b + term_c + term_d)
+    result = LEGACY_HEAT_CAPACITY_CAL_FACTOR * (term_a + term_b + term_c + term_d)
     return result
 
 
@@ -644,7 +645,7 @@ def CMPT(A: float, B: float, C: float, D: float, T: float, T0: float) -> float:
     Returns:
         积分值 [kJ/(kmol·K)]
     """
-    result = 4.186 * (
+    result = LEGACY_HEAT_CAPACITY_CAL_FACTOR * (
         A * np.log(T / T0) +
         B * 0.001 * (T - T0) -
         0.5 * C * (1.0e5 / T / T - 1.0e5 / T0 / T0) +
@@ -709,10 +710,12 @@ def FH2(TEMP: float, PP: float, X: float, IAGG: str, KALZG: str) -> float:
     Returns:
         对应的热力学性质值
     """
+    if common.KMODEL == 1 and KALZG == 'MOLG':
+        return common.MH2
     A, B, C, D = 6.52, 0.78, 0.12, 0.0
     S298, TU = 130.645, 298.15
-    RM = 8.3143
-    XMOLG = 2.0159
+    RM = common.RM
+    XMOLG = 2.0159 if common.KMODEL == 0 else common.MH2
     SIGMA, EPSK = 2.827, 59.7
     
     # 修复: 接受'S'作为固体相态 (用于固体碳焓值计算)
@@ -762,13 +765,15 @@ def FSOLID(TEMP: float, PP: float, X: float, IAGG: str, KALZG: str) -> float:
     Returns:
         对应的热力学性质值
     """
+    if common.KMODEL == 1 and KALZG == 'MOLG':
+        return common.MASH
     A = [10.496, 14.08]
     B = [9.277, 2.4]
     C = [-2.313, 0.0]
     D = [0.0, 0.0]
     S298, TU = 9.91, 298.15
     HMT = -911292.2
-    RM = 8.3143
+    RM = common.RM
     
     TEMPNEU = min(TEMP, 847.0)
     
@@ -807,6 +812,8 @@ def FH2S(TEMP: float, PP: float, X: float, IAGG: str, KALZG: str) -> float:
     Returns:
         对应的热力学性质值
     """
+    if common.KMODEL == 1 and KALZG == 'MOLG':
+        return common.MH2S
     A, B, C, D = 31.8544, 3.5503e-3, 3.1474e-6, -0.8717e-9
     TU = 298.15
     HMT = -20180.4
@@ -840,10 +847,12 @@ def FO2(TEMP: float, PP: float, X: float, IAGG: str, KALZG: str) -> float:
     Returns:
         对应的热力学性质值
     """
+    if common.KMODEL == 1 and KALZG == 'MOLG':
+        return common.MO2
     A, B, C, D = 7.16, 1.0, -0.4, 0.0
     S298, TU = 205.135, 298.15
-    RM = 8.3143
-    XMOLG = 31.9988
+    RM = common.RM
+    XMOLG = 31.9988 if common.KMODEL == 0 else common.MO2
     SIGMA, EPSK = 3.467, 106.7
     
     # 修复: 接受空字符串''或'    '作为固体相态
@@ -895,13 +904,15 @@ def FC(TEMP: float, PP: float, X: float, IAGG: str, KALZG: str) -> float:
     Returns:
         对应的热力学性质值
     """
+    if common.KMODEL == 1 and KALZG == 'MOLG':
+        return common.MC
     A = [0.026, 5.841]
     B = [9.307, 0.104]
     C = [-0.354, -7.559]
     D = [-4.155, 0.0]
     S298, TU = 5.743, 298.15
     HMT = 0.0
-    RM = 8.3143
+    RM = common.RM
     
     TEMPNEU = min(TEMP, 1100.0)
     
@@ -943,10 +954,12 @@ def FN2(TEMP: float, PP: float, X: float, IAGG: str, KALZG: str) -> float:
     Returns:
         对应的热力学性质值
     """
+    if common.KMODEL == 1 and KALZG == 'MOLG':
+        return common.MN2
     A, B, C, D = 6.66, 1.02, 0.0, 0.0
     S298, TU = 191.593, 298.15
-    RM = 8.3143
-    XMOLG = 28.0134
+    RM = common.RM
+    XMOLG = 28.0134 if common.KMODEL == 0 else common.MN2
     SIGMA, EPSK = 3.798, 71.4
     
     # 修复: 接受空字符串''或'    '作为固体相态
@@ -998,10 +1011,12 @@ def FCO2(TEMP: float, PP: float, X: float, IAGG: str, KALZG: str) -> float:
     Returns:
         对应的热力学性质值
     """
+    if common.KMODEL == 1 and KALZG == 'MOLG':
+        return common.MCO2
     A, B, C, D = 10.55, 2.16, -2.04, 0.0
     S298, TU = 213.762, 298.15
     HMT = -393693.3
-    RM = 8.3143
+    RM = common.RM
     
     # 修复: 接受空字符串''或'    '作为固体相态
     if IAGG not in ['G', '    ', '']:
@@ -1037,11 +1052,13 @@ def FCO(TEMP: float, PP: float, X: float, IAGG: str, KALZG: str) -> float:
     Returns:
         对应的热力学性质值
     """
+    if common.KMODEL == 1 and KALZG == 'MOLG':
+        return common.MCO
     A, B, C, D = 6.79, 0.98, -0.11, 0.0
     S298, TU = 197.646, 298.15
     HMT = -110594.12
-    RM = 8.3143
-    XMOLG = 28.0106
+    RM = common.RM
+    XMOLG = 28.0106 if common.KMODEL == 0 else common.MCO
     SIGMA, EPSK = 3.690, 91.7
     
     # 修复: 接受空字符串''或'    '作为固体相态
@@ -1093,10 +1110,12 @@ def FCH4(TEMP: float, PP: float, X: float, IAGG: str, KALZG: str) -> float:
     Returns:
         对应的热力学性质值
     """
+    if common.KMODEL == 1 and KALZG == 'MOLG':
+        return common.MCH4
     A, B, C, D = 2.975, 18.329, 0.346, -4.303
     S298, TU = 186.277, 298.15
     HMT = -74845.68
-    RM = 8.3143
+    RM = common.RM
     
     # 修复: 接受空字符串''或'    '作为固体相态
     if IAGG not in ['G', '    ', '']:
@@ -1132,6 +1151,8 @@ def FH2O(TEMP: float, PPP: float, X: float, IAGG: str, KALZG: str) -> float:
     Returns:
         对应的热力学性质值 [J/kmol for ENTH, kJ/(kmol·K) for ENTR]
     """
+    if common.KMODEL == 1 and KALZG == 'MOLG':
+        return common.MH2O
     from .fh2o_fortran import fh2o_fortran_complete as FH2O_Complete
     
     # 转换相态标识以匹配 Fortran（需要4字符宽度）
@@ -1156,7 +1177,7 @@ def ENTHP(KOMP: int, IAGG: str, T: float, P: float) -> float:
     Returns:
         比焓值 [J/kmol] 或 [J/kg]
     """
-    XMC, XSIO2 = 12.00, 60.0
+    XMC, XSIO2 = common.MC, common.MASH
     
     if KOMP == 1:
         return FO2(T, P, -1.0, IAGG, 'ENTH')
@@ -1219,7 +1240,7 @@ def WDKR(T: float, TW: float) -> float:
         辐射换热系数 [W/(m^2·K)]
     """
     TM = (TW + T) / 2.0
-    CS = 5.672e-8  # Stefan-Boltzmann常数 [W/(m^2·K^4)]
+    CS = common.SIGMA_SB  # Stefan-Boltzmann常数 [W/(m^2·K^4)]
     ESURF = 0.78   # 表面发射率
     ESURP = 0.78   # 颗粒发射率
     
@@ -1241,7 +1262,20 @@ def FXMUG(Y_array: np.ndarray, T: float) -> float:
     Returns:
         混合物粘度 [Pa·s]
     """
-    G = 9.81
+    if common.KMODEL == 1:
+        y = np.asarray(Y_array[1:9], dtype=float)
+        if len(y) != 8 or not np.all(np.isfinite(y)) or np.any(y < 0) or y.sum() <= 0 or not np.isfinite(T) or T <= 0:
+            raise ValueError('混合气粘度需要八种非负组分及正温度')
+        y = y / y.sum()
+        masses = common.XMOL[:8]
+        coefficients = np.array([1.98, 1.06, 1.69, 1.43, 1.194, .852, 1.70, .84]) * 1e-6
+        powers = np.array([.693, .760, .695, .820, .986, .678, .680, 1.200])
+        mu = common.G * coefficients * (T / 273.15) ** powers
+        interaction = (1 + np.sqrt(mu[:, None] / mu[None, :]) *
+                       (masses[None, :] / masses[:, None]) ** .25) ** 2 / np.sqrt(8 * (1 + masses[:, None] / masses[None, :]))
+        return float(np.sum(y * mu / (interaction @ y)))
+
+    G = 9.81  # 以下为原 Fortran 对照路径
     T0 = 273.15
     
     # 分子量 [kg/kmol]

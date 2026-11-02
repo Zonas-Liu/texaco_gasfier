@@ -205,7 +205,7 @@ def kolerg(output_file=None, write_restart=True):
     # 体积流量 (Nm3/s)
     vol_flows = []
     for j in range(1, 8):
-        vf = common.FEMF[j, common.NZRE] * 22.4
+        vf = common.FEMF[j, common.NZRE] * common.VM_NORMAL
         vol_flows.append(vf)
     
     outfile.write(f"{'体积流量(Nm3/s)':>12s}: " + " ".join([f"{vf:>8.4f}" for vf in vol_flows]) + "\n")
@@ -239,7 +239,7 @@ def kolerg(output_file=None, write_restart=True):
         outfile.write(f"      饱和温度:           {tsat_water(common.P_DRUM)-273.15:>10.2f} C\n")
         outfile.write(f"      给水温度:           {common.T_FW-273.15:>10.2f} C\n")
         outfile.write(f"      饱和蒸汽焓:         {h_sat_steam(common.P_DRUM):>10.2f} kJ/kg\n")
-        outfile.write(f"      给水焓:             {h_feedwater(common.T_FW):>10.2f} kJ/kg\n")
+        outfile.write(f"      给水焓:             {h_feedwater(common.T_FW, common.P_DRUM):>10.2f} kJ/kg\n")
         outfile.write("-" * 60 + "\n")
         outfile.write(f"      燃烧室出口温度:     {common.T[common.NZRC]-273.15:>10.2f} C\n")
         if dry_rc > 0:
@@ -254,16 +254,16 @@ def kolerg(output_file=None, write_restart=True):
         outfile.write("\n      各组分流量对比 (Nm3/s):\n")
         outfile.write(f"      {'组分':>6s} {'燃烧室出口':>12s} {'废锅出口':>12s} {'变化量':>12s}\n")
         for j in range(1, 9):
-            v_rc = common.FEMF[j, common.NZRC] * 22.4
-            v_re = common.FEMF[j, common.NZRE] * 22.4
+            v_rc = common.FEMF[j, common.NZRC] * common.VM_NORMAL
+            v_re = common.FEMF[j, common.NZRE] * common.VM_NORMAL
             outfile.write(f"      {comp_names[j]:>6s} {v_rc:>12.4f} {v_re:>12.4f} "
                           f"{v_re-v_rc:>+12.4f}\n")
-        v_rc_tot = common.FEM[common.NZRC] * 22.4
-        v_re_tot = common.FEM[common.NZRE] * 22.4
+        v_rc_tot = common.FEM[common.NZRC] * common.VM_NORMAL
+        v_re_tot = common.FEM[common.NZRE] * common.VM_NORMAL
         outfile.write(f"      {'总计':>6s} {v_rc_tot:>12.4f} {v_re_tot:>12.4f} "
                       f"{v_re_tot-v_rc_tot:>+12.4f}\n")
-        v_rc_dry = dry_rc * 22.4
-        v_re_dry = (common.FEM[common.NZRE] - common.FEMF[8, common.NZRE]) * 22.4
+        v_rc_dry = dry_rc * common.VM_NORMAL
+        v_re_dry = (common.FEM[common.NZRE] - common.FEMF[8, common.NZRE]) * common.VM_NORMAL
         outfile.write(f"      {'干基':>6s} {v_rc_dry:>12.4f} {v_re_dry:>12.4f} "
                       f"{v_re_dry-v_rc_dry:>+12.4f}\n")
         outfile.write("-" * 60 + "\n")
@@ -283,7 +283,10 @@ def kolerg(output_file=None, write_restart=True):
         molar = {g: float(common.FEMF[j, cell] * 3600) for j, g in enumerate(gases, 1)}
         ash = float(common.WE[cell] * (1 - common.X[cell]) * 3600)
         points[str(cell)] = {'molar_flow_kmol_h': molar, 'ash_kg_h': ash,
-                             'temperature_c': float(common.T[cell] - 273.15)}
+                             'temperature_c': float(common.T[cell] - 273.15),
+                             'normal_molar_volume_nm3_kmol': common.VM_NORMAL,
+                             'normal_temperature_k': 273.15, 'normal_pressure_pa': common.P0,
+                             'constants_basis': common.CONSTANTS_BASIS}
         outfile.write(f'\n      第 {cell} 格出口摩尔流量 (kmol/h):\n')
         for gas, flow in molar.items():
             outfile.write(f'        {gas}: {flow:.6f}\n')
@@ -546,12 +549,12 @@ def kontr():
     """
     # ===== 元素平衡检查 =====
     # 输入元素总量
-    c_total = common.BSLURRY * common.RATIO_COAL * common.ELC + sum(common.FEDCO2) * 12.0
-    h_total = common.BSLURRY * (common.RATIO_COAL * (common.ELH + common.ELH2O * 2.0 / 18.0)
-                                 + (1.0 - common.RATIO_COAL) * 2.0 / 18.0)
-    o_total = common.BSLURRY * (common.RATIO_COAL * (common.ELO + common.ELH2O * 16.0 / 18.0)
-                                 + (1.0 - common.RATIO_COAL) * 16.0 / 18.0) + sum(common.FEEDO2) * 32.0 + sum(common.FEDCO2) * 32.0
-    xn_total = common.BSLURRY * common.RATIO_COAL * common.ELN + sum(common.FEEDN2) * 28.0
+    c_total = common.BSLURRY * common.RATIO_COAL * common.ELC + sum(common.FEDCO2) * common.MC
+    h_total = common.BSLURRY * (common.RATIO_COAL * (common.ELH + common.ELH2O * common.MH2 / common.MH2O)
+                                 + (1.0 - common.RATIO_COAL) * common.MH2 / common.MH2O)
+    o_total = common.BSLURRY * (common.RATIO_COAL * (common.ELO + common.ELH2O * common.MO / common.MH2O)
+                                 + (1.0 - common.RATIO_COAL) * common.MO / common.MH2O) + sum(common.FEEDO2) * common.MO2 + sum(common.FEDCO2) * common.MO2
+    xn_total = common.BSLURRY * common.RATIO_COAL * common.ELN + sum(common.FEEDN2) * common.MN2
     s_total = common.BSLURRY * common.RATIO_COAL * common.ELS
     ash_total = common.BSLURRY * common.RATIO_COAL * common.ELAS
     
@@ -559,26 +562,26 @@ def kontr():
     nzre_idx = common.NZRE  # 转换为0-based索引
     
     # C: CH4 + CO + CO2 + 未反应碳
-    sum_c = ((common.FEMF[2, nzre_idx] + common.FEMF[3, nzre_idx] + common.FEMF[4, nzre_idx]) * 12.0
+    sum_c = ((common.FEMF[2, nzre_idx] + common.FEMF[3, nzre_idx] + common.FEMF[4, nzre_idx]) * common.MC
              + common.WE[nzre_idx] * common.X[nzre_idx]
              - common.RVTAR[0] * common.XMTAR * common.X[nzre_idx] * common.KCHECK
-             + common.RVTAR[0] * 12.0 * common.KCHECK)
+             + common.RVTAR[0] * common.MC * common.KCHECK)
     
     # H: CH4(4H) + H2S(2H) + H2(2H) + H2O(2H) + 焦油中的H
     sum_h = ((common.FEMF[2, nzre_idx] * 4.0 + common.FEMF[5, nzre_idx] * 2.0 
               + common.FEMF[6, nzre_idx] * 2.0 + common.FEMF[8, nzre_idx] * 2.0)
-             + common.RVTAR[0] * 0.689 * common.KCHECK)
+             + common.RVTAR[0] * 0.689 * common.KCHECK) * common.MH
     
     # O: O2(2O) + CO(O) + CO2(2O) + H2O(O) + 焦油中的O
     sum_o = ((common.FEMF[1, nzre_idx] * 2.0 + common.FEMF[3, nzre_idx] 
-              + common.FEMF[4, nzre_idx] * 2.0 + common.FEMF[8, nzre_idx]) * 16.0
-             + common.RVTAR[0] * 0.014 * 16.0 * common.KCHECK)
+              + common.FEMF[4, nzre_idx] * 2.0 + common.FEMF[8, nzre_idx]) * common.MO
+             + common.RVTAR[0] * 0.014 * common.MO * common.KCHECK)
     
     # N: N2(2N)
-    sum_n = common.FEMF[7, nzre_idx] * 28.0
+    sum_n = common.FEMF[7, nzre_idx] * common.MN2
     
     # S: H2S(S)
-    sum_s = common.FEMF[5, nzre_idx] * 32.0
+    sum_s = common.FEMF[5, nzre_idx] * common.MS
     
     # Ash
     sum_ash = (common.WE[nzre_idx] * (1.0 - common.X[nzre_idx])
@@ -656,23 +659,23 @@ def hcrt():
     i = 0
     
     # 输入质量流
-    xmin_o2 = common.FEEDO2[i] * 32.0
-    xmin_n2 = common.FEEDN2[i] * 28.0
-    xmin_h2o = common.FEDH2O[i] * 18.0
+    xmin_o2 = common.FEEDO2[i] * common.MO2
+    xmin_n2 = common.FEEDN2[i] * common.MN2
+    xmin_h2o = common.FEDH2O[i] * common.MH2O
     xmin_c = common.WFC[i]
     xmin_a = common.WFA[i]
-    xmin_vt = (common.RVCH4[0] * 16.0 + common.RCO[0] * 28.0 
-               + common.RCO2[0] * 44.0 + common.RVTAR[0] * common.XMTAR
-               + common.RVH2O[0] * 18.0 + (common.RVH2[0] + common.RH2[0]) * 2.0
-               + common.RH2S[0] * 34.0 + common.REN2[0] * 28.0 + common.RO2[0] * 32.0)
+    xmin_vt = (common.RVCH4[0] * common.MCH4 + common.RCO[0] * common.MCO
+               + common.RCO2[0] * common.MCO2 + common.RVTAR[0] * common.XMTAR
+               + common.RVH2O[0] * common.MH2O + (common.RVH2[0] + common.RH2[0]) * common.MH2
+               + common.RH2S[0] * common.MH2S + common.REN2[0] * common.MN2 + common.RO2[0] * common.MO2)
     
     xmt_in = xmin_o2 + xmin_n2 + xmin_h2o + xmin_c + xmin_a + xmin_vt
     
     # 输出质量流
-    xout_gas = (common.FEMF[1, i] * 32.0 + common.FEMF[2, i] * 16.0
-                + common.FEMF[3, i] * 28.0 + common.FEMF[4, i] * 44.0
-                + common.FEMF[5, i] * 34.0 + common.FEMF[6, i] * 2.0
-                + common.FEMF[7, i] * 28.0 + common.FEMF[8, i] * 18.0)
+    xout_gas = (common.FEMF[1, i] * common.MO2 + common.FEMF[2, i] * common.MCH4
+                + common.FEMF[3, i] * common.MCO + common.FEMF[4, i] * common.MCO2
+                + common.FEMF[5, i] * common.MH2S + common.FEMF[6, i] * common.MH2
+                + common.FEMF[7, i] * common.MN2 + common.FEMF[8, i] * common.MH2O)
     xout_sd = common.WE[i]
     
     xmt_out = xout_gas + xout_sd

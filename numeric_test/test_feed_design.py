@@ -87,7 +87,7 @@ class FeedDesignTests(unittest.TestCase):
             eingab(str(self.path), overrides={'FOXY': 1.1, 'BSLURRY': 20})
         self.assertEqual(common.KTRL, 1)
         self.assertEqual(common.BSMS, 12)
-        self.assertAlmostEqual(sum(common.FEEDO2), common.BSWAF * 1.1 / 32)
+        self.assertAlmostEqual(sum(common.FEEDO2), common.BSWAF * 1.1 / common.MO2)
         self.path.write_text(original)
         with contextlib.redirect_stdout(io.StringIO()):
             eingab(str(self.path))
@@ -117,7 +117,7 @@ class FeedDesignTests(unittest.TestCase):
         final = result['outlet_sections'][-1]
         self.assertEqual(final['ash_kg_h'], 5400)
         self.assertAlmostEqual(final['molar_flow_kmol_h']['CO'], common.FEMF[3, 60] * 3600)
-        self.assertAlmostEqual(final['total_molar_kmol_h'] * 22.4 / 3600, final['total_wet_nms'])
+        self.assertAlmostEqual(final['total_molar_kmol_h'] * final['normal_molar_volume_nm3_kmol'] / 3600, final['total_wet_nms'])
         # 删除新结构化块模拟历史文件：气量可换算，灰流量不得用当前输入伪造。
         old = '\n'.join(l for l in output.getvalue().splitlines() if not l.startswith('OUTLET_FLOWS_JSON:'))
         result_file.write_text(old, encoding='utf-8')

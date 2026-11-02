@@ -50,7 +50,7 @@ class RscDesignTests(unittest.TestCase):
         q = 13.2e6
         for p, t in ((6.5e6, 423.15), (6.5e6, 473.15), (8e6, 423.15)):
             m = steam_production(q, p, t)
-            self.assertAlmostEqual(m * (h_sat_steam(p) - h_feedwater(t)) * 1000, q)
+            self.assertAlmostEqual(m * (h_sat_steam(p) - h_feedwater(t, p)) * 1000, q)
         self.assertGreater(steam_production(q, 6.5e6, 473.15), steam_production(q, 6.5e6, 423.15))
 
     def test_optional_line_roundtrip_and_reset(self):

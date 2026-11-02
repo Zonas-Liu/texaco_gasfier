@@ -229,7 +229,7 @@ def xk5(i):
     
     # 计算反应速率
     # 防溢出保护
-    exp_arg = -3.0e4 / (1.987 * common.T[i])
+    exp_arg = -3.0e4 / (common.RCAL * common.T[i])
     if exp_arg < -700:
         exp_arg = -700
     elif exp_arg > 700:
@@ -359,40 +359,43 @@ def flucht():
     pro = fak * common.ELO     # O元素含量
     
     # 计算总释放量(假设所有元素都以特定形式释放)
-    rh2s_total = prs * common.BSMS / 32.0    # 总H2S释放量 [kmol/s]
-    ren2_total = prn * common.BSMS / 28.0    # 总N2释放量 [kmol/s]
-    rh2_total = prh * common.BSMS / 2.0      # 总H2释放量 [kmol/s]
-    ro2_total = pro * common.BSMS / 32.0     # 总O2释放量 [kmol/s]
+    rh2s_total = prs * common.BSMS / common.MS    # 总H2S释放量 [kmol/s]
+    ren2_total = prn * common.BSMS / common.MN2    # 总N2释放量 [kmol/s]
+    rh2_total = prh * common.BSMS / common.MH2      # 总H2释放量 [kmol/s]
+    ro2_total = pro * common.BSMS / common.MO2     # 总O2释放量 [kmol/s]
     
     # 如果没有挥发分,跳转到902
     if common.XVM == 0.0:
-        _flucht_902(rh2s_total, ren2_total, rh2_total, ro2_total, prc, prn, prs, prh, pro)
+        # 原移植代码在此交换了 H/O/N/S 参数；旧模型仅保留作 Fortran 对照。
+        elements = (prh, pro, prn, prs) if common.KMODEL == 1 else (prn, prs, prh, pro)
+        _flucht_902(rh2s_total, ren2_total, rh2_total, ro2_total, prc,
+                    *elements)
         return
     
     # 根据挥发分含量计算各组分释放量(基于关联式)
     # RVCH41: CH4释放量 [kmol/s]
     rvch41 = ((0.201 - 0.469 * common.XVM + 0.261 * common.XVM ** 2)
-              * common.XVM * common.BSWAF / 16.0)
+              * common.XVM * common.BSWAF / common.MCH4)
     
     # RVTAR1: TAR释放量 [kmol/s]
     rvtar1 = ((-0.325 + 7.279 * common.XVM - 12.88 * common.XVM ** 2)
-              * common.XVM * common.BSWAF / 12.913)
+              * common.XVM * common.BSWAF / common.XMTAR)
     
     # RVH21: H2释放量 [kmol/s]
     rvh21 = ((0.157 - 0.868 * common.XVM + 1.388 * common.XVM ** 2)
-             * common.XVM * common.BSWAF / 2.0)
+             * common.XVM * common.BSWAF / common.MH2)
     
     # RCO21: CO2释放量 [kmol/s]
     rco21 = ((0.13 - 0.9 * common.XVM + 1.906 * common.XVM ** 2)
-             * common.XVM * common.BSWAF / 44.0)
+             * common.XVM * common.BSWAF / common.MCO2)
     
     # RCO1: CO释放量 [kmol/s]
     rco1 = ((0.428 - 2.653 * common.XVM + 4.845 * common.XVM ** 2)
-            * common.XVM * common.BSWAF / 28.0)
+            * common.XVM * common.BSWAF / common.MCO)
     
     # RVH2O1: H2O释放量 [kmol/s]
     rvh2o1 = ((0.409 - 2.389 * common.XVM + 4.5 * common.XVM ** 2)
-              * common.XVM * common.BSWAF / 18.0)
+              * common.XVM * common.BSWAF / common.MH2O)
     
     # 计算剩余H和O元素
     # RH2_RE: 剩余H元素(转换为H2) [kmol/s]
@@ -575,10 +578,10 @@ def _flucht_902(rh2s_total, ren2_total, rh2_total, ro2_total, prc, prh, pro, prn
     """
     # 计算各格子中的释放速率
     for i in range(common.NZRA, common.NZFR + 1):
-        common.RH2[i] = (prh * common.BSMS / 2.0) * common.DELZ[i] / common.HNZFR
-        common.RO2[i] = (pro * common.BSMS / 32.0) * common.DELZ[i] / common.HNZFR
-        common.REN2[i] = (prn * common.BSMS / 28.0) * common.DELZ[i] / common.HNZFR
-        common.RH2S[i] = (prs * common.BSMS / 32.0) * common.DELZ[i] / common.HNZFR
+        common.RH2[i] = (prh * common.BSMS / common.MH2 - (rh2s_total if common.KMODEL == 1 else 0.0)) * common.DELZ[i] / common.HNZFR
+        common.RO2[i] = (pro * common.BSMS / common.MO2) * common.DELZ[i] / common.HNZFR
+        common.REN2[i] = (prn * common.BSMS / common.MN2) * common.DELZ[i] / common.HNZFR
+        common.RH2S[i] = (prs * common.BSMS / common.MS) * common.DELZ[i] / common.HNZFR
     
     # 计算固定碳分布
     sum_wfc = 0.0
@@ -599,17 +602,17 @@ def _flucht_distribute(rvch41, rvh21, rvh2o1, rco1, rco21, rvtar1,
     """
     # 计算元素释放速率
     for i in range(common.NZRA, common.NZFR + 1):
-        common.RH2[i] = (prh * common.BSMS / 2.0 - (2.0 * rvch41 + rvh21 + rvh2o1 + rh2s_total
+        common.RH2[i] = (prh * common.BSMS / common.MH2 - (2.0 * rvch41 + rvh21 + rvh2o1 + rh2s_total
                                                   + 0.3445 * rvtar1)) * common.DELZ[i] / common.HNZFR
-        common.RO2[i] = (pro * common.BSMS / 32.0 - (0.5 * (rco1 + rvh2o1) + 0.007
+        common.RO2[i] = (pro * common.BSMS / common.MO2 - (0.5 * (rco1 + rvh2o1) + 0.007
                                                    * rvtar1 + rco21)) * common.DELZ[i] / common.HNZFR
-        common.REN2[i] = prn * common.BSMS / 28.0 * common.DELZ[i] / common.HNZFR
-        common.RH2S[i] = prs * common.BSMS / 32.0 * common.DELZ[i] / common.HNZFR
+        common.REN2[i] = prn * common.BSMS / common.MN2 * common.DELZ[i] / common.HNZFR
+        common.RH2S[i] = prs * common.BSMS / common.MS * common.DELZ[i] / common.HNZFR
     
     # 计算固定碳质量流量分布
     sum_wfc = 0.0
     for i in range(common.NZRA, common.NZFED + 1):
-        common.WFC[i] = (prc * common.BSMS - 12.0 * (rco1 + rco21 + rvch41) - 12.0 * rvtar1) / (common.NZFED - common.NZRA + 1)
+        common.WFC[i] = (prc * common.BSMS - common.MC * (rco1 + rco21 + rvch41) - common.MC * rvtar1) / (common.NZFED - common.NZRA + 1)
         sum_wfc += common.WFC[i]
     
     # 计算挥发分释放速率分布
@@ -624,10 +627,10 @@ def _flucht_distribute(rvch41, rvh21, rvh2o1, rco1, rco21, rvtar1,
     # 计算总挥发分转化率
     vm0 = 0.0
     for i in range(common.NZRA, common.NZRE + 1):
-        vm0 += (common.RVCH4[i] * 16.0 + common.RVH2[i] * 2.0 + common.RVH2O[i] * 18.0
-                + common.RCO[i] * 28.0 + common.RCO2[i] * 44.0 + common.RVTAR[i] * 12.913
-                + common.RH2[i] * 2.0 + common.RO2[i] * 32.0 + common.REN2[i] * 28.0
-                + common.RH2S[i] * 34.0)
+        vm0 += (common.RVCH4[i] * common.MCH4 + common.RVH2[i] * common.MH2 + common.RVH2O[i] * common.MH2O
+                + common.RCO[i] * common.MCO + common.RCO2[i] * common.MCO2 + common.RVTAR[i] * common.XMTAR
+                + common.RH2[i] * common.MH2 + common.RO2[i] * common.MO2 + common.REN2[i] * common.MN2
+                + common.RH2S[i] * common.MH2S)
     
     # 挥发分转化率和碳含量
     common.XCVM0 = vm0 / common.BSWAF

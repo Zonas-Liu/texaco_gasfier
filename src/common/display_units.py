@@ -1,5 +1,5 @@
 """界面单位与 Fortran 输入单位之间的转换；不改变历史文件的绝压/K 口径。"""
-ATM_PA = 101325.0
+from common.physical_constants import ATM_PA
 
 
 def display_spec(unit):

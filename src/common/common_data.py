@@ -42,15 +42,13 @@ class CommonData:
         self.init_volatile()
         self.init_enthalpy()
         self.init_matrix()
+        from common.physical_constants import configure
+        configure(self)
     
     def init_parameters(self):
         """Common.00 - 基本参数"""
-        # 物理常数
+        # 物理常数由 physical_constants.configure 在完整初始化后统一配置。
         self.NGAS = 8              # 气体组分数
-        self.G = 9.801             # 重力加速度 [m/s^2]
-        self.RAG = 8314.3          # 通用气体常数 [J/(kmol·K)]
-        self.PI = 3.1415926        # 圆周率
-        self.P0 = 1.01325e5        # 标准大气压 [Pa]
     
     def init_structure(self):
         """Common.00 - 结构参数和控制变量"""
@@ -173,8 +171,7 @@ class CommonData:
         self.XC0 = 0.0
         
         # 分子量 [kg/kmol]
-        self.XMOL = np.array([32., 16., 28., 44., 34., 2., 28., 18., 12., 60.])
-        self.XMTAR = 12.913            # 焦油分子量
+        # XMOL/XMTAR 与元素原子量一同配置，避免不同模块混用质量基准。
         
         # 系数
         self.COEF_A1 = 0.1
@@ -274,7 +271,7 @@ class CommonData:
         self.KRELAX_METH = 0.02  # 甲烷化平衡松弛系数
         self.FEED_MODE = 0       # 0=给定进料正算，1=燃烧室温度/有效气量反算
         self.T_CHAMBER_C = 1228.0
-        self.EFFECTIVE_GAS_NMH = 49600.0  # CO+H2，沿用模型 22.4 Nm3/kmol
+        self.EFFECTIVE_GAS_NMH = 49600.0  # CO+H2，标方按本次模型的 VM_NORMAL 换算
         self.FOXY_MIN = 0.7
         self.FOXY_MAX = 1.3
         self.SLURRY_MIN = 5.0

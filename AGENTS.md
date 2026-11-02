@@ -48,7 +48,7 @@ TEXACO（德士古）水煤浆气化炉 Fortran 程序的 Python 移植版（1D 
   - 水煤气变换 WGS：CO+H2O↔CO2+H2，K_WGS(T)=exp(4577.8/T − 4.33)
   - 甲烷化：CO+3H2↔CH4+H2O，K_METH(T)=exp(24766/T − 25.82)（298K 标准态范特霍夫近似）
   - R = KRELAX · 驱动力 · FEM[i]，作为 DMAT 组分源项（能量效应经 HENTH 自动计入）
-- **蒸汽物性**：4–10 MPa 范围内简化关联式（Tsat、h″、汽化潜热），精度需以权威物性库独立验证，当前无全范围误差保证
+- **蒸汽物性**：汽包4–10 MPa绝压范围采用IAPWS-IF97，给水焓按汽包压力计算压缩液；已用官方校核点验证。水侧焓不得直接替换含生成焓的气侧ENTHP。
 
 ### 新增输入参数（Datain0.dat 第 12-17 行，可选）
 - 行12: KMODEL, P_DRUM(Pa), T_FW(K)
@@ -70,7 +70,9 @@ TEXACO（德士古）水煤浆气化炉 Fortran 程序的 Python 移植版（1D 
 - GUI：`.venv\Scripts\streamlit run app.py`
 - Web 版：`python web_backend/app.py`（http://127.0.0.1:5000）
 
-## 晋华炉3.0 验证结果（2026-08-18, data/Datain0.dat 典型工况）
+## 晋华炉3.0 历史验证结果（2026-08-18；已被后续守恒修复更新）
+
+以下数值保留作历史记录。当前基准及新物性来源见 `docs/ELEMENT_BALANCE_FIX.md`、`docs/PHYSICAL_CONSTANTS.md`；不得继续将旧废锅结果作为正确目标值。
 - 63 次迭代收敛（KONVER=0），残差 FE=2.7e-6 / T=2.0e-3
 - 燃烧室出口 1228℃（膜式壁炉型合理区间），干基 CO 42.4% / H2 37.2%
 - 辐射废锅出口 **756.9℃**（目标 750~800℃ ✓）
@@ -106,13 +108,13 @@ TEXACO（德士古）水煤浆气化炉 Fortran 程序的 Python 移植版（1D 
 - RSC_MODE=0 保持固定 H_RSC；RSC_MODE=1 给定 T_RSC_OUT_C，以 H_RSC 为搜索初值，在指定高度范围内求解。
 - `src/functions/rsc_design.py` 负责有界扩展和保守割线搜索。每个候选调用 `main._iterate()` 完整求解，几何随高度更新，沿用上一候选的收敛状态；不修改 DMAT 方程和反应系数。
 - 仅当内层收敛且目标温差 ≤0.5℃ 才成功；最多 18 个候选。返回 2 还包括目标温度未达到。失败搜索不得覆盖 START.DAT。
-- 各候选的 Q_RSC=sum(QKW) 与产汽量 Q_RSC/[h_steam(P_DRUM)-h_fw(T_FW)] 联动；不得单独改显示温度或把蒸汽量当独立自由量。
+- 各候选的 Q_RSC=sum(QKW) 与产汽量 Q_RSC/[h_steam(P_DRUM)-h_fw(T_FW,P_DRUM)] 联动；注意kJ/kg转J/kg，不得单独改显示温度或把蒸汽量当独立自由量。
 - GASTEST 追加 `RSC_DESIGN_JSON` 保存同次设计结果与轨迹。双出口流量从已有 KOLERG 对照表解析；不从当前输入反推历史结果。
 - Web 可编辑第 12–15 行，未变动可选行原样保留。Streamlit 仍只提供前 11 行编辑。
 - 方法、验证、模型适用限制见 `docs/RSC_TARGET_DESIGN.md`；新测试见 `numeric_test/test_rsc_design.py`。
 
 ## 燃烧室双目标反算及界面单位（2026-11-02）
-- `FEED_MODE=1` 以燃烧室出口温度和 CO+H2 标方流量（Nm³/h，22.4 Nm³/kmol）为双目标，求 FOXY 与 BSLURRY；煤浆浓度、氧气纯度及其余参数不变。
+- `FEED_MODE=1` 以燃烧室出口温度和 CO+H2 标方流量（Nm³/h，使用本次 `VM_NORMAL`）为双目标，求 FOXY 与 BSLURRY；煤浆浓度、氧气纯度及其余参数不变。
 - `src/functions/feed_design.py` 使用有界阻尼牛顿、有限差分雅可比及回溯。仅接受内层收敛、温差≤0.5℃、气量差≤max(1,0.001×目标) Nm³/h；最多40次试算，失败恢复最佳候选最多再算1次。
 - `eingab(overrides=...)` 只接受 FOXY/BSLURRY/KTRL 覆盖，必须在派生量和源项初始化前应用。反算忽略历史 START，先正常初始化，再将本次已收敛状态按负荷缩放作为候选初值，仍完整重算源项并验证收敛。
 - 可与 RSC_MODE=1 联用：先满足燃烧室双目标，再求废锅高度/产汽并复核最终燃烧室双目标。联合模式通过 `run_target_design(finalize=False)` 延迟最终状态与重启写入，全部通过才写 START。
@@ -128,8 +130,12 @@ TEXACO（德士古）水煤浆气化炉 Fortran 程序的 Python 移植版（1D 
 - ENTKOL 以 `(T,PWK)` 缓存完整十种组分焓和温度导数，缓存仅存活于一次 GASIFIER 组装。ENTFED 每次组装计算一次。局部物性更新包含本格和上游格；XMASS 的上游 ROS 必须有效，不能无条件将其他物性更新也裁成单格。
 - 结果输出仍全炉刷新派生量。基准脚本 `numeric_test/benchmark_solver.py` 在隔离目录保存状态/计时；`--linear-only` 比较同一实际雅可比的求解耗时及后向误差。细节见 `docs/SOLVER_PERFORMANCE.md`；回归见 `numeric_test/test_solver_performance.py`。
 
-## 元素守恒实验发现（2026-11-02，正式方程尚未修正）
-- 典型工况进口至燃烧室出口的C/H/O/N/S及灰闭合；废锅段C少669.245 kg/h、H多13.366 kg/h、O少1784.653 kg/h。数值收敛不能作为元素守恒证明。
-- 根因为CO2基础行已除以1.2、H2基础行已乘以1.02，后加RSC源项却未同步缩放。收紧阈值或改回legacy线性后端均不能消除该缺口。
-- `numeric_test/check_element_balance.py` 独立计算物理进口和湿气+残碳+灰出口；按正常KMODEL=1/KCHECK=0、固定进料/固定高度开展隔离对照。候选仅在实验副本将新增CO2/H2源项分别除以1.2、乘以1.02，已恢复该工况守恒，未改正式src。
-- 原废锅组分、温度及产汽结果需在正式修正后重验；候选单工况通过不等于全操作范围验证。证据及影响见 `docs/ELEMENT_BALANCE_EXPERIMENT.md` 和 `docs/element_balance_results.json`。
+## 元素守恒与物性基准修复（2026-11-02）
+- 原RSC源项缩放不一致已在正式DMAT修复：CO2新增项同除1.2，H2新增项同乘1.02。不得只缩放基础项；回归直接检查实际DMAT新增源项的原子守恒。
+- `numeric_test/check_element_balance.py` 从煤/水/氧化剂独立构造进口，对照湿气+残碳+灰两处出口；审计阈值为max(1e-6 kg/h,进口×1e-8)，不等同于牛顿修正量判据。默认7工况全部闭合，联合设计完整状态另验通过。
+- 常数统一在 `src/common/physical_constants.py`：KMODEL=1使用CIAAW2024简明原子量及CODATA2022；气体摩尔质量、进料、源项、焓换算和输出不得另写整数质量。KMODEL=0保留fortran-legacy，完整状态及START逐位对照通过。
+- 标况为273.15 K/101325 Pa。晋华炉 `VM_NORMAL=R_kmol*T/P≈22.413969545014`；TEXACO保留22.4。OUTLET_FLOWS_JSON保存当次体积和常数基准，历史缺失元数据时仅按旧22.4解析。
+- 汽包/给水使用iapws>=1.5.5，`h_feedwater(T,P)`压力必填；IF97仅用于水侧。气侧旧热容系数、生成焓和水表归一化参数不可与新参考态零散混用。
+- 典型新基准：64次收敛，燃烧室1232.374℃、废锅791.480℃、水冷壁2.157 t/h、废锅30.465 t/h；旧756.86℃与24.32 t/h已失效。46项单元回归通过。
+- XVM=0源项传参及H2S耗氢已修正，但全炉默认100次仍未收敛，仅保留为可选诊断；KCHECK辅助模式、独立能量闭合和全操作范围不在本次验收范围。
+- 当前证据见 `docs/ELEMENT_BALANCE_FIX.md`、`docs/element_balance_fixed_results.json`；常数来源、经验近似及适用边界见 `docs/PHYSICAL_CONSTANTS.md`。原缺陷历史报告保留。

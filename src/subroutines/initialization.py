@@ -37,11 +37,6 @@ def eingab(data_path='data/Datain0.dat', output_file=None, overrides=None):
     # 原位重置 COMMON 单例，避免打包 GUI 连续运行继承上次状态。
     common.reset()
 
-    # 设置分子量 (DATA语句) [kg/kmol]
-    # XMOL: O2, CH4, CO, CO2, H2S, H2, N2, H2O, C, TAR
-    common.XMOL = np.array([32., 16., 28., 44., 34., 2., 28., 18., 12., 60.])
-    common.XMTAR = 12.913  # 焦油分子量
-    
     # 读取输入数据文件
     # 使用项目根目录作为基准
     project_root = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
@@ -197,6 +192,8 @@ def eingab(data_path='data/Datain0.dat', output_file=None, overrides=None):
             raise ValueError(f'不支持初始化覆盖参数 {name}')
         setattr(common, name, value)
 
+    from common.physical_constants import configure
+    configure(common)
     from common.input_validation import validate_params
     inputs = {name: value for name, value in vars(common).items()
               if type(value) in (int, float)}
@@ -291,16 +288,16 @@ def eingab(data_path='data/Datain0.dat', output_file=None, overrides=None):
     common.BSWAF = common.BSMS * (1.0 - common.ELH2O - common.ELAS)
     
     # FOX: 氧气体积流量 [Nm3/s]
-    common.FOX = (common.FOXY * common.BSWAF / 32.0 / common.PURE_O2 * 22.4)
+    common.FOX = (common.FOXY * common.BSWAF / common.MO2 / common.PURE_O2 * common.VM_NORMAL)
     
     # GFOX: 氧气质量流量 [kg/s]
-    common.GFOX = common.FOX * (common.PURE_O2 * 32.0 + (1.0 - common.PURE_O2) * 28.0) / 22.4
+    common.GFOX = common.FOX * (common.PURE_O2 * common.MO2 + (1.0 - common.PURE_O2) * common.MN2) / common.VM_NORMAL
     
     # FCO2: CO2体积流量 [Nm3/s]
     fco2 = common.FOX * common.RATIO_CO2
     
     # GFCO2: CO2质量流量 [kg/s]
-    gfco2 = fco2 / 22.4 * 44.0
+    gfco2 = fco2 / common.VM_NORMAL * common.MCO2
     
     # 计算进料分配 (循环I=NZRA到NZFED,即第1个格子)
     # 注意: Fortran使用1-based索引,Python使用0-based但保持数组大小为31来兼容
@@ -312,25 +309,25 @@ def eingab(data_path='data/Datain0.dat', output_file=None, overrides=None):
         common.WFC[i] = common.ELC * common.BSMS * common.DELZ[i] / common.HFED
         
         # FEEDO2: O2进料 [kmol/s]
-        common.FEEDO2[i] = (common.FOX * common.PURE_O2 / 22.4 * 
+        common.FEEDO2[i] = (common.FOX * common.PURE_O2 / common.VM_NORMAL *
                            common.DELZ[i] / common.HFED * common.OX_PART)
         
         # FEEDN2: N2进料 [kmol/s]
-        common.FEEDN2[i] = (common.FOX * (1.0 - common.PURE_O2) / 22.4 * 
+        common.FEEDN2[i] = (common.FOX * (1.0 - common.PURE_O2) / common.VM_NORMAL *
                            common.DELZ[i] / common.HFED)
         
         # FEDCO2: CO2进料 [kmol/s]
-        common.FEDCO2[i] = common.FOX * common.RATIO_CO2 / 22.4 * common.DELZ[i] / common.HFED
+        common.FEDCO2[i] = common.FOX * common.RATIO_CO2 / common.VM_NORMAL * common.DELZ[i] / common.HFED
         
         # FEDH2O: H2O进料 [kmol/s]
         common.FEDH2O[i] = ((common.BSLURRY * (1.0 - common.RATIO_COAL) + 
-                            common.ELH2O * common.BSMS) / 18.0 * 
+                            common.ELH2O * common.BSMS) / common.MH2O *
                            common.DELZ[i] / common.HFED)
     
     # 第二个进料点的氧气 (N2FED=7)
     h_n2fed_diff = common.H[common.N2FED] - common.H[common.N2FED + 1]
     if abs(h_n2fed_diff) > 1e-10:
-        common.FEEDO2[common.N2FED] = (common.FOX * common.PURE_O2 / 22.4 * 
+        common.FEEDO2[common.N2FED] = (common.FOX * common.PURE_O2 / common.VM_NORMAL *
                                        common.DELZ[common.N2FED] / h_n2fed_diff * 
                                        (1.0 - common.OX_PART))
     
@@ -360,11 +357,11 @@ def eingab(data_path='data/Datain0.dat', output_file=None, overrides=None):
             # Fortran: FEMF(7,I)=GFOX*(1.0-PURE_O2)/28.0/NZFED + KCHECK*REN2(1)
             # Note: NZFED in Fortran is 1-based count (NZRA=1 to NZFED=1 means 1 cell)
             nzed = common.NZFED - common.NZRA + 1  # Number of feed cells
-            common.FEMF[7, i] = (common.GFOX * (1.0 - common.PURE_O2) / 28.0 / nzed + 
+            common.FEMF[7, i] = (common.GFOX * (1.0 - common.PURE_O2) / common.MN2 / nzed +
                                 common.KCHECK * common.REN2[0])
             # Fortran: FEMF(8,I)=(BSLURRY*(1.0-RATIO_COAL)+ELH2O*BSMS)/18.0/NZFED + KCHECK*RVH2O(1)
             common.FEMF[8, i] = ((common.BSLURRY * (1.0 - common.RATIO_COAL) + 
-                                 common.ELH2O * common.BSMS) / 18.0 / nzed + 
+                                 common.ELH2O * common.BSMS) / common.MH2O / nzed +
                                 common.KCHECK * common.RVH2O[0])
             common.T[i] = 298.15
             common.X[i] = common.WFC[0] / (common.WFA[0] + common.WFC[0])
@@ -379,10 +376,10 @@ def eingab(data_path='data/Datain0.dat', output_file=None, overrides=None):
             common.FEMF[5, i] = 0.104452e-02 + common.KCHECK * common.RH2S[0]
             common.FEMF[6, i] = 0.137525e-01 * 2.0 + common.KCHECK * (common.RH2[0] + common.RVH2[0])
             nzed = common.NZFED - common.NZRA + 1  # Number of feed cells
-            common.FEMF[7, i] = (common.GFOX * (1.0 - common.PURE_O2) / 28.0 / nzed + 
+            common.FEMF[7, i] = (common.GFOX * (1.0 - common.PURE_O2) / common.MN2 / nzed +
                                 common.KCHECK * common.REN2[0])
             common.FEMF[8, i] = ((common.BSLURRY * (1.0 - common.RATIO_COAL) + 
-                                 common.ELH2O * common.BSMS) / 18.0 / nzed + 
+                                 common.ELH2O * common.BSMS) / common.MH2O / nzed +
                                 common.KCHECK * common.RVH2O[0])
             common.T[i] = 1500.0
             common.X[i] = 0.0665412e+00
@@ -635,8 +632,8 @@ def qhcrct():
     
     # 计算有效热值HUU [kJ/kg]
     # 使用标准生成焓计算
-    huu = (((common.ELC / 12.0) * common.BSMS * (-393.6933) +
-            (common.ELH / 2.0 - common.ELS / 32.0) * common.BSMS * (-286.5) -
+    huu = (((common.ELC / common.MC) * common.BSMS * (-393.6933) +
+            (common.ELH / common.MH2 - common.ELS / common.MS) * common.BSMS * (-286.5) -
             rco21 * common.BSMS * (-393.6933) -
             rco1 * common.BSMS * (-110.59412) -
             rvch41 * common.BSMS * (-74.84568) -
@@ -665,8 +662,8 @@ def qhcrct():
             rvtar1 * (-9.3))
     
     # 计算产物焓值
-    co2_out = common.ELC * common.BSMS / 12.0
-    h2o_out = common.ELH * common.BSMS / 2.0 - rh2s1
+    co2_out = common.ELC * common.BSMS / common.MC
+    h2o_out = common.ELH * common.BSMS / common.MH2 - rh2s1
     
     h_prdct = co2_out * (-393.6933) + h2o_out * hf_h2o1 + rh2s1 * (-20.18)
     

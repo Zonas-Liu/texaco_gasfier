@@ -8,6 +8,7 @@ datas += collect_data_files('streamlit')
 # hooks/hook-streamlit.py 中已使用 collect_submodules('streamlit') 兜底
 hiddenimports = [
     'scipy.linalg',
+    'iapws',
     'streamlit.runtime.scriptrunner.magic_funcs',
     'streamlit.web.cli',
     'streamlit.web.bootstrap',

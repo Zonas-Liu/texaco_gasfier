@@ -1,61 +1,51 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-晋华炉3.0 - 饱和蒸汽物性与产汽量计算 (jinhualu分支新增)
+"""汽包/给水侧 IAPWS-IF97 物性，Pa/K输入，焓为kJ/kg。
 
-适用范围: 汽包压力 4~10 MPa，简化关联式（尚无全范围误差验证）
-数据来源: 饱和水蒸气表拟合
+给水按汽包压力计算压缩液焓；不与反应侧含生成焓的ENTHP基准混用。
+外部操作范围仍为4–10 MPa。缓存仅保存按完整温压参数得到的不可变标量。
 """
+from functools import lru_cache
 import math
+from iapws import IAPWS97
+
+
+def _pressure(p_pa):
+    if not math.isfinite(p_pa) or not 4e6 <= p_pa <= 10e6:
+        raise ValueError('汽包物性压力必须为4–10 MPa绝压')
+    return p_pa / 1e6
+
+
+@lru_cache(maxsize=128)
+def _saturation(p_pa):
+    pressure = _pressure(p_pa)
+    liquid, vapor = IAPWS97(P=pressure, x=0), IAPWS97(P=pressure, x=1)
+    return float(vapor.T), float(liquid.h), float(vapor.h)
 
 
 def tsat_water(p_pa: float) -> float:
-    """
-    饱和温度 [K]，由压力计算
-    拟合点: 4MPa→523.5K, 6.5MPa→554.2K, 8MPa→568.2K, 10MPa→584.1K
-    """
-    p_mpa = max(p_pa / 1.0e6, 0.1)
-    return 431.9 + 66.1 * math.log(p_mpa)
+    return _saturation(p_pa)[0]
 
 
 def h_sat_steam(p_pa: float) -> float:
-    """
-    饱和蒸汽焓 h″ [kJ/kg]
-    拟合点: 4MPa→2801, 6.5MPa→2773, 8MPa→2758, 10MPa→2725
-    """
-    p_mpa = max(p_pa / 1.0e6, 0.1)
-    return 2852.0 - 12.67 * p_mpa
+    return _saturation(p_pa)[2]
 
 
 def latent_heat(p_pa: float) -> float:
-    """
-    汽化潜热 r [kJ/kg]
-    拟合点: 4MPa→1714, 6.5MPa→1500, 8MPa→1441, 10MPa→1318
-    """
-    p_mpa = max(p_pa / 1.0e6, 0.1)
-    return 2312.0 - 431.7 * math.log(p_mpa)
+    _, liquid, vapor = _saturation(p_pa)
+    return vapor - liquid
 
 
-def h_feedwater(t_k: float) -> float:
-    """
-    给水(未饱和水)焓 [kJ/kg]，近似 cp≈4.186 kJ/(kg·K)
-    """
-    return 4.186 * (t_k - 273.15)
+@lru_cache(maxsize=256)
+def h_feedwater(t_k: float, p_pa: float) -> float:
+    """给水压缩液焓；压力必填，禁止默认为大气压或忽略压力。"""
+    pressure = _pressure(p_pa)
+    if not math.isfinite(t_k) or not 273.15 <= t_k < tsat_water(p_pa):
+        raise ValueError('给水温度必须不低于0℃且低于汽包饱和温度')
+    return float(IAPWS97(P=pressure, T=t_k).h)
 
 
 def steam_production(q_w: float, p_drum_pa: float, t_fw_k: float) -> float:
-    """
-    由回收热量计算饱和蒸汽产量
-
-    参数:
-        q_w: 回收热负荷 [W]
-        p_drum_pa: 汽包压力 [Pa]
-        t_fw_k: 给水温度 [K]
-
-    返回:
-        蒸汽产量 [kg/s]
-    """
-    if q_w <= 0.0:
-        return 0.0
-    delta_h = (h_sat_steam(p_drum_pa) - h_feedwater(t_fw_k)) * 1000.0  # [J/kg]
-    return q_w / delta_h
+    """回收热负荷W / 汽水焓差J/kg → 饱和蒸汽kg/s。"""
+    if not math.isfinite(q_w):
+        raise ValueError('回收热负荷必须为有限数')
+    delta_h = (h_sat_steam(p_drum_pa) - h_feedwater(t_fw_k, p_drum_pa)) * 1000
+    return max(q_w, 0.0) / delta_h

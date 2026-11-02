@@ -107,7 +107,7 @@ def run_feed_design(output_file, data_path, iterate):
 
     def outlet():
         return dict(temperature_c=float(common.T[common.NZRC] - 273.15),
-                    effective_gas_nmh=float((common.FEMF[3, common.NZRC] + common.FEMF[6, common.NZRC]) * 22.4 * 3600))
+                    effective_gas_nmh=float((common.FEMF[3, common.NZRC] + common.FEMF[6, common.NZRC]) * common.VM_NORMAL * 3600))
 
     def evaluate(oxy, slurry):
         nonlocal latest, header, count

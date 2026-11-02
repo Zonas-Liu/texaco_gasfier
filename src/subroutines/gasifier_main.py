@@ -281,7 +281,8 @@ def _calculate_dmat_for_cell(
         drive_wgs = y_co * y_h2o - y_co2 * y_h2 / max(k_wgs, 1.0e-30)
         r_wgs = common.KRELAX_WGS * drive_wgs * common.FEM[i]
         
-        # 甲烷化平衡常数 [1/bar^2], 298K标准态范特霍夫近似
+        # 甲烷化无量纲平衡常数，298K范特霍夫近似；压力以P0=101325Pa归一化。
+        # 此处保留历史经验基准，不将P/P0误称为以bar计的压力。
         # K = [CH4][H2O]/([CO][H2]^3) * (P0/P)^2
         k_meth = np.exp(24766.0 / t_i - 25.82)
         p_ratio2 = (common.PWK / common.P0) ** 2
@@ -292,8 +293,9 @@ def _calculate_dmat_for_cell(
         # 施加到DMAT组分平衡行 (r>0 表示正向进行)
         common.DMAT[2, i] += r_meth          # CH4 生成
         common.DMAT[3, i] -= r_wgs + r_meth  # CO 消耗
-        common.DMAT[4, i] += r_wgs           # CO2 生成
-        common.DMAT[6, i] += r_wgs - 3.0 * r_meth  # H2
+        # 基础CO2/H2行已分别 /1.2、*1.02；新增源项必须同步缩放，保持化学计量。
+        common.DMAT[4, i] += r_wgs / 1.2
+        common.DMAT[6, i] += (r_wgs - 3.0 * r_meth) * 1.02
         common.DMAT[8, i] -= r_wgs - r_meth  # H2O
     
     # ---------------------------------------------------------
