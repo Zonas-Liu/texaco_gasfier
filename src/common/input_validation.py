@@ -7,10 +7,10 @@ def validate_params(params):
     for name, value in params.items():
         if isinstance(value, bool) or not math.isfinite(float(value)):
             raise ValueError(f"{name} 必须是有限数值")
-    for name in ("KTRL", "ITMAX", "KMODEL", "N_RSC"):
+    for name in ("KTRL", "ITMAX", "KMODEL", "N_RSC", "RSC_MODE"):
         if name in params and float(params[name]) != int(params[name]):
             raise ValueError(f"{name} 必须是整数")
-    for name in ("KTRL", "KMODEL"):
+    for name in ("KTRL", "KMODEL", "RSC_MODE"):
         if name in params and params[name] not in (0, 1):
             raise ValueError(f"{name} 只能为 0 或 1")
     positive = ("ITMAX", "SKONFE", "SKONWE", "SKONX", "SKONT", "BSLURRY",
@@ -29,6 +29,13 @@ def validate_params(params):
             raise ValueError(f"{name} 不得为负")
     if params.get("ELAS", 0) + params.get("ELH2O", 0) >= 1:
         raise ValueError("灰分与水分之和必须小于 1")
+    if params.get("RSC_MODE") == 1:
+        if params.get("KMODEL") != 1:
+            raise ValueError("目标出口温度模式仅适用于晋华炉（KMODEL=1）")
+        if not 0 < params["H_RSC_MIN"] < params["H_RSC_MAX"]:
+            raise ValueError("废锅高度搜索范围必须满足 0 < 下限 < 上限")
+        if params["T_RSC_OUT_C"] + 273.15 <= params["TW_RSC"]:
+            raise ValueError("目标出口温度必须高于废锅有效壁温")
     if params.get("KMODEL") == 1:
         if not 1 <= params["N_RSC"] <= 30:
             raise ValueError("N_RSC 必须在 1 到 30 之间（NZDIM=61）")

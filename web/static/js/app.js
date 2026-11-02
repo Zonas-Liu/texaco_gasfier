@@ -103,8 +103,28 @@ function setBusy(busy) {
   $("btn-run").disabled = busy || !state.loaded;
   $("btn-run").textContent = busy ? "计算进行中" : "运行模拟";
   document
-    .querySelectorAll("#params-form input")
+    .querySelectorAll("#params-form input, #params-form select")
     .forEach((el) => (el.disabled = busy));
+  syncDesignControls();
+}
+function syncDesignControls() {
+  const mode = $("param-RSC_MODE"),
+    model = $("param-KMODEL");
+  if (!mode || !model) return;
+  const enabled = model.value === "1",
+    target = enabled && mode.value === "1";
+  for (const [name, info] of Object.entries(state.info)) {
+    if (info.group === "辐射废锅设计" && name !== "KMODEL") {
+      const targetOnly = ["T_RSC_OUT_C", "H_RSC_MIN", "H_RSC_MAX"].includes(
+        name,
+      );
+      $(`param-${name}`).disabled =
+        state.polling || !enabled || (targetOnly && !target);
+    }
+  }
+  document.querySelector('label[for="param-H_RSC"]').textContent = target
+    ? "高度搜索初值"
+    : "废锅有效高度";
 }
 function caption() {
   $("result-caption").textContent =
@@ -142,7 +162,10 @@ document.addEventListener("DOMContentLoaded", async () => {
   $("btn-save").addEventListener("click", saveParams);
   $("btn-run").addEventListener("click", runSimulation);
   $("params-form").addEventListener("submit", (e) => e.preventDefault());
-  $("params-form").addEventListener("input", () => {
+  $("params-form").addEventListener("input", (e) => {
+    if (e.target.id === "param-KMODEL" && e.target.value === "0")
+      $("param-RSC_MODE").value = "0";
+    syncDesignControls();
     state.dirty = true;
     caption();
     message("参数已修改，运行时将自动保存。");
@@ -157,7 +180,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     if (e.key === "Tab" && document.body.classList.contains("drawer-open")) {
       const nodes = [
         ...$("parameter-panel").querySelectorAll(
-          "button:not(:disabled),input:not(:disabled),summary",
+          "button:not(:disabled),input:not(:disabled),select:not(:disabled),summary",
         ),
       ].filter((n) => n.getClientRects().length);
       if (e.shiftKey && document.activeElement === nodes[0]) {
@@ -217,7 +240,13 @@ async function loadParams() {
 }
 function renderParams(data) {
   $("params-form").replaceChildren();
-  const order = ["进料参数", "状态与几何", "煤质与操作", "控制与收敛"];
+  const order = [
+    "进料参数",
+    "辐射废锅设计",
+    "状态与几何",
+    "煤质与操作",
+    "控制与收敛",
+  ];
   for (const group of order.filter((g) => data.grouped[g])) {
     const details = document.createElement("details");
     details.className = "param-group";
@@ -229,13 +258,28 @@ function renderParams(data) {
     details.append(summary);
     const fields = document.createElement("div");
     fields.className = "group-fields";
+    if (group === "辐射废锅设计") {
+      const hint = document.createElement("p");
+      hint.className = "parameter-hint";
+      hint.textContent = "目标温度模式联动计算有效高度、回收热负荷和产汽量。";
+      fields.append(hint);
+    }
     for (const name of data.grouped[group]) {
       const info = data.info[name];
       const row = document.createElement("div");
       row.className = "form-group";
       row.dataset.search = `${name} ${info.cn} ${info.desc}`.toLowerCase();
       row.innerHTML = `<div class="field-label"><label for="param-${name}" title="${escapeHtml(info.desc)}">${escapeHtml(info.cn)}</label><small>${name}</small></div><div class="input-shell"><input id="param-${name}" name="${name}" type="number" step="${info.type === "int" ? "1" : "any"}" required aria-describedby="unit-${name}"><span class="field-unit" id="unit-${name}">${escapeHtml(info.unit || "无量纲")}</span></div>`;
-      row.querySelector("input").value = data.values[name];
+      if (info.options) {
+        row.classList.add("select-field");
+        const select = document.createElement("select");
+        select.id = `param-${name}`;
+        select.name = name;
+        for (const [value, label] of Object.entries(info.options))
+          select.add(new Option(label, value));
+        row.querySelector("input").replaceWith(select);
+      }
+      row.querySelector("input,select").value = data.values[name];
       fields.append(row);
     }
     details.append(fields);
@@ -344,14 +388,18 @@ async function pollProgress() {
       message("计算已收敛，结果已更新。", "success");
       await loadResults();
     } else {
-      const text = data.returncode === 2 ? "达到迭代上限，未收敛" : "计算失败";
+      const text =
+        data.returncode === 2
+          ? data.message || "达到迭代上限，未收敛"
+          : "计算失败";
       status(text, "error");
       $("progress-title").textContent = text;
       $("progress-card").classList.add("error");
       message(text + "，请检查参数与运行日志。", "error");
       if (data.returncode === 2) {
         await loadResults();
-        $("result-caption").textContent = "本次计算未收敛 · 结果仅供诊断";
+        $("result-caption").textContent =
+          "本次计算未通过全部收敛条件 · 结果仅供诊断";
       }
     }
   } catch (e) {
@@ -448,8 +496,16 @@ function showSummary(r) {
       : "收敛状态未知",
     last?.KONVER === 0 ? "success" : "error",
   );
+  if (r.rsc_design)
+    status(
+      r.rsc_design.success
+        ? `目标已达到 · ${r.rsc_design.evaluations} 轮设计计算`
+        : "目标温度未达到",
+      r.rsc_design.success ? "success" : "error",
+    );
   $("heat-panel").hidden = !isRsc;
   $("zone-legend").hidden = !isRsc;
+  renderDesign(r.rsc_design);
   $("heat-metrics").innerHTML = isRsc
     ? metric("水冷壁", fmt(heat.steam_wall_tph), "t/h") +
       metric("辐射废锅", fmt(heat.steam_rsc_tph), "t/h") +
@@ -489,25 +545,38 @@ function layout(yTitle, xTitle = "格子号") {
   return {
     font: {
       family: "Segoe UI, Microsoft YaHei, sans-serif",
-      size: 11,
+      size: 12,
       color: "#647383",
     },
     paper_bgcolor: "#ffffff",
     plot_bgcolor: "#ffffff",
-    margin: { l: 56, r: 22, t: 28, b: 52 },
+    margin: { l: 62, r: 28, t: 46, b: 54 },
     xaxis: {
-      title: { text: xTitle, font: { size: 11 } },
-      gridcolor: "#edf1f4",
+      title: { text: xTitle, font: { size: 12 } },
+      showgrid: false,
+      showline: true,
+      linecolor: "#dce5eb",
+      ticks: "outside",
+      tickcolor: "#dce5eb",
+      ticklen: 4,
+      nticks: 7,
       zeroline: false,
       automargin: true,
     },
     yaxis: {
-      title: { text: yTitle, font: { size: 11 } },
-      gridcolor: "#e7edf1",
+      title: { text: yTitle, font: { size: 12 } },
+      gridcolor: "#edf1f4",
+      nticks: 5,
       zeroline: false,
       automargin: true,
     },
-    legend: { orientation: "h", x: 0, y: 1.15, font: { size: 10 } },
+    legend: {
+      orientation: "h",
+      x: 0,
+      y: 1.2,
+      font: { size: 12 },
+      traceorder: "normal",
+    },
     hovermode: "x unified",
     hoverlabel: { bgcolor: "#172c3e", font: { color: "#fff", size: 12 } },
     showlegend: false,
@@ -520,7 +589,13 @@ function plotLine(id, rows, keys, yTitle, options = {}) {
     y: rows.map((r) => r[key]),
     name: GAS_LABELS[key] || OUTPUT_LABELS[key] || key,
     mode: "lines",
-    line: { width: 2.5, color: options.color || GAS_COLORS[key] || COLORS[i] },
+    connectgaps: false,
+    line: {
+      width: 3,
+      shape: "linear",
+      color: options.color || GAS_COLORS[key] || COLORS[i],
+      dash: options.log && i > 0 ? ["solid", "dot", "dash"][i] : "solid",
+    },
     hovertemplate: "%{y:.4g}<extra>%{fullData.name}</extra>",
   }));
   const spec = layout(yTitle, options.x === "Iter" ? "迭代次数" : "格子号");
@@ -528,6 +603,17 @@ function plotLine(id, rows, keys, yTitle, options = {}) {
   if (options.log) spec.yaxis.type = "log";
   if (options.zones && rows.length > 30) {
     spec.shapes = [
+      {
+        type: "rect",
+        x0: 30,
+        x1: rows.at(-1).I,
+        y0: 0,
+        y1: 1,
+        yref: "paper",
+        fillcolor: "rgba(20,125,115,0.045)",
+        line: { width: 0 },
+        layer: "below",
+      },
       {
         type: "line",
         x0: 30,
@@ -543,17 +629,47 @@ function plotLine(id, rows, keys, yTitle, options = {}) {
         x: 30,
         y: 1,
         yref: "paper",
-        text: "燃烧室出口",
+        text: "燃烧室 / 辐射废锅",
         showarrow: false,
         xanchor: "right",
         yshift: 15,
-        font: { size: 10, color: "#147d73" },
+        font: { size: 11, color: "#147d73" },
       },
     ];
+    const exits = [rows.find((r) => r.I === 30), rows.at(-1)].filter(Boolean);
+    traces.push({
+      x: exits.map((r) => r.I),
+      y: exits.map((r) => r[keys[0]]),
+      type: "scatter",
+      mode: "markers",
+      showlegend: false,
+      hoverinfo: "skip",
+      marker: {
+        size: 8,
+        color: options.color || COLORS[0],
+        line: { color: "#fff", width: 2 },
+      },
+    });
+    exits.forEach((r, i) =>
+      spec.annotations.push({
+        x: r.I,
+        y: r[keys[0]],
+        text: `${i === 0 ? "燃烧室" : "废锅"} ${fmt(r[keys[0]], 1)} °C`,
+        showarrow: true,
+        arrowhead: 0,
+        arrowcolor: "#aebdc5",
+        ax: i === 0 ? 0 : -52,
+        ay: i === 0 ? -36 : -28,
+        bgcolor: "#fff",
+        bordercolor: "#dce5eb",
+        borderpad: 5,
+        font: { size: 11, color: "#172c3e" },
+      }),
+    );
   }
   Plotly.newPlot(id, traces, spec, PLOT_CONFIG);
 }
-function plotBar(id, data, unit, horizontal = false) {
+function plotBar(id, data, unit, horizontal = false, maximum = null) {
   let keys = Object.keys(data);
   if (horizontal)
     keys = ["CO", "H2", "CO2", "CH4", "N2", "H2S", "O2"].filter((k) =>
@@ -580,7 +696,9 @@ function plotBar(id, data, unit, horizontal = false) {
   spec.hovermode = "closest";
   if (horizontal) {
     spec.yaxis.autorange = "reversed";
-    spec.xaxis.range = [0, Math.max(...values, 1) * 1.23];
+    spec.yaxis.tickmode = "array";
+    spec.yaxis.tickvals = keys.map((k) => GAS_LABELS[k] || k);
+    spec.xaxis.range = [0, maximum || Math.max(...values, 1) * 1.23];
     spec.yaxis.showgrid = false;
   } else {
     spec.yaxis.range = [0, Math.max(...values, 1) * 1.22];
@@ -594,15 +712,74 @@ function renderTable(id, columns, rows, formatters = {}) {
     return;
   }
   $(id).innerHTML =
-    `<table><thead><tr>${columns.map((c) => `<th scope="col">${escapeHtml(OUTPUT_LABELS[c] || GAS_LABELS[c] || c)}</th>`).join("")}</tr></thead><tbody>${rows.map((row) => `<tr>${columns.map((c) => `<td>${escapeHtml(formatters[c] ? formatters[c](row[c]) : finite(row[c]) ? fmt(row[c], c === "I" || c === "Iter" || c === "KONVER" ? 0 : 3) : row[c])}</td>`).join("")}</tr>`).join("")}</tbody></table>`;
+    `<table><thead><tr>${columns.map((c) => `<th scope="col">${escapeHtml(OUTPUT_LABELS[c] || GAS_LABELS[c] || c)}</th>`).join("")}</tr></thead><tbody>${rows.map((row) => `<tr class="${row.I === 30 || row.I === state.result?.internal_profile?.at(-1)?.I ? "section-boundary" : ""}">${columns.map((c) => `<td>${escapeHtml(formatters[c] ? formatters[c](row[c]) : finite(row[c]) ? fmt(row[c], ["I", "Iter", "KONVER", "轮次", "内层迭代"].includes(c) ? 0 : 3) : row[c])}</td>`).join("")}</tr>`).join("")}</tbody></table>`;
 }
-function objectTable(id, data, label) {
+function renderOutlets(sections) {
+  const host = $("outlet-comparison");
+  document.querySelector(".comparison-key").hidden = sections.length < 2;
+  if (!sections.length) {
+    host.textContent = "没有可用的出口截面数据，请重新运行模拟。";
+    return;
+  }
+  host.innerHTML = sections
+    .map(
+      (s, i) => `<section class="panel outlet-card ${s.key}">
+    <div class="outlet-heading"><div><span class="outlet-position">第 ${s.cell} 格</span><h2>${escapeHtml(s.label)}</h2></div><div class="outlet-temperature">${fmt(s.temperature_c, 1)}<small>°C</small></div></div>
+    <div class="outlet-stats"><div><span>干基总流量</span><strong>${fmt(s.total_dry_nms, 3)}<small>Nm³/s</small></strong></div><div><span>H₂ / CO</span><strong>${fmt(s.h2_co_ratio, 3)}</strong></div></div>
+    <div class="chart-heading">干基组成 <span>体积分数 / %</span></div><div class="plot outlet-plot" id="plot-outlet-${i}"></div>
+    <div class="table-wrap outlet-table" id="table-outlet-${i}"></div>
+    <div class="outlet-footer"><span>湿基总流量（含 H₂O）</span><strong>${fmt(s.total_wet_nms, 3)} Nm³/s</strong><small>${fmt(finite(s.total_wet_nms) ? s.total_wet_nms * 3600 : null, 1)} Nm³/h</small></div>
+    ${Object.keys(s.volume_flow).length ? "" : '<p class="section-note">此历史输出缺少该出口流量，请重新计算补全。</p>'}
+  </section>`,
+    )
+    .join("");
+  const maximum =
+    Math.max(
+      1,
+      ...sections.flatMap((s) =>
+        Object.values(s.dry_composition).filter(finite),
+      ),
+    ) * 1.23;
+  sections.forEach((s, i) => {
+    plotBar(`plot-outlet-${i}`, s.dry_composition, "%", true, maximum);
+    const keys = ["CO", "H2", "CO2", "CH4", "N2", "H2S", "O2", "H2O"];
+    renderTable(
+      `table-outlet-${i}`,
+      ["组分", "干基 (%)", "湿基 (%)", "流量 (Nm³/s)"],
+      keys.map((g) => ({
+        组分: GAS_LABELS[g],
+        "干基 (%)": s.dry_composition[g],
+        "湿基 (%)": s.wet_composition[g],
+        "流量 (Nm³/s)": s.volume_flow[g],
+      })),
+    );
+  });
+}
+function renderDesign(design) {
+  $("design-result").hidden = !design;
+  if (!design) return;
+  $("design-result").innerHTML =
+    `<div class="design-heading"><h3>目标温度设计</h3><span class="design-state ${design.success ? "" : "failed"}">${design.success ? "已达目标" : "目标未达到"}</span></div>
+    <div class="design-metrics">${metric("目标出口温度", fmt(design.target_temperature_c, 1), "°C")}${metric("计算有效高度", fmt(design.height_m, 2), "m")}${metric("废锅回收热负荷", fmt(design.heat_rsc_mw, 3), "MW")}${metric("废锅产汽量", fmt(design.steam_rsc_tph, 3), "t/h")}</div>
+    <p class="design-note">实际出口 ${fmt(design.temperature_c, 2)} °C · 温差 ${design.temperature_error_c >= 0 ? "+" : ""}${fmt(design.temperature_error_c, 3)} °C · 允许温差 ±${fmt(design.tolerance_c, 1)} °C · ${design.evaluations} 轮设计计算</p>
+    <details class="design-history"><summary>查看高度、温度与产汽联动过程</summary><div class="table-wrap" id="design-table"></div></details>`;
   renderTable(
-    id,
-    ["组分", label],
-    Object.entries(data).map(([k, v]) => ({
-      组分: GAS_LABELS[k] || k,
-      [label]: v,
+    "design-table",
+    [
+      "轮次",
+      "有效高度 (m)",
+      "出口温度 (°C)",
+      "回收热量 (MW)",
+      "废锅产汽 (t/h)",
+      "内层迭代",
+    ],
+    design.trials.map((t, i) => ({
+      轮次: i + 1,
+      "有效高度 (m)": t.height_m,
+      "出口温度 (°C)": t.temperature_c,
+      "回收热量 (MW)": t.heat_rsc_mw,
+      "废锅产汽 (t/h)": t.steam_rsc_tph,
+      内层迭代: t.iterations,
     })),
   );
 }
@@ -644,31 +821,7 @@ function renderTab(id) {
       ),
     );
   }
-  if (id === "tab-syngas") {
-    plotBar("plot-syngas", r.syngas_composition || {}, "%");
-    plotBar("plot-volume", r.volume_flow || {}, "Nm³/s");
-    objectTable("syngas-table", r.syngas_composition || {}, "体积分数 (%)");
-    objectTable("volume-table", r.volume_flow || {}, "流量 (Nm³/s)");
-    const wet = r.wet_syngas;
-    if (wet) {
-      $("wet-summary").textContent =
-        `H₂O 体积分数 ${fmt(wet.h2o_frac * 100, 3)}% · 湿基总流量 ${fmt(wet.total_wet_nms, 3)} Nm³/s（${fmt(wet.total_wet_nmh, 1)} Nm³/h）`;
-      plotBar("plot-wet", wet.wet_flow_nmh, "Nm³/h");
-      renderTable(
-        "wet-table",
-        ["组分", "Nm³/s", "Nm³/h"],
-        Object.keys(wet.wet_flow_nms).map((k) => ({
-          组分: GAS_LABELS[k] || k,
-          "Nm³/s": wet.wet_flow_nms[k],
-          "Nm³/h": wet.wet_flow_nmh[k],
-        })),
-      );
-    } else {
-      $("wet-summary").textContent = "没有可用的湿基组成数据。";
-      $("plot-wet").replaceChildren();
-      $("wet-table").replaceChildren();
-    }
-  }
+  if (id === "tab-syngas") renderOutlets(r.outlet_sections || []);
   if (id === "tab-profile") {
     plotLine("plot-temp", internal, ["T(C)"], "温度 (°C)", {
       color: "#e68136",

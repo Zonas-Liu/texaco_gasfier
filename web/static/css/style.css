@@ -32,7 +32,8 @@ body {
   font-variant-numeric: tabular-nums;
 }
 button,
-input {
+input,
+select {
   font: inherit;
 }
 button,
@@ -51,7 +52,8 @@ button:disabled {
 button:focus-visible,
 a:focus-visible,
 summary:focus-visible,
-input:focus-visible {
+input:focus-visible,
+select:focus-visible {
   outline: 3px solid #5bada5;
   outline-offset: 3px;
 }
@@ -263,6 +265,9 @@ summary span {
 }
 .form-group:last-child {
   border: 0;
+}
+.form-group.select-field {
+  grid-template-columns: minmax(0, 1fr) 122px;
 }
 .field-label label {
   font-size: 12px;
@@ -549,24 +554,28 @@ main {
   overflow: auto;
   max-height: 420px;
   scrollbar-width: thin;
+  border: 1px solid var(--border);
+  border-radius: 8px;
 }
 table {
-  border-collapse: collapse;
+  border-collapse: separate;
+  border-spacing: 0;
   width: 100%;
-  font-size: 12px;
+  font-size: 13px;
   white-space: nowrap;
 }
 th {
   color: var(--muted);
-  font-weight: 500;
-  background: #f5f8fa;
+  font-weight: 600;
+  background: #edf4f5;
   position: sticky;
   top: 0;
   text-align: right;
+  z-index: 2;
 }
 td,
 th {
-  padding: 10px 12px;
+  padding: 12px 15px;
   border-bottom: 1px solid #eaf0f3;
 }
 td {
@@ -578,7 +587,274 @@ th:first-child {
   text-align: left;
 }
 tbody tr:hover {
-  background: #f5faf9;
+  background: #eaf5f2;
+}
+tbody tr:nth-child(even) {
+  background: #f8fafb;
+}
+tbody tr.section-boundary {
+  background: #edf7f4;
+  color: #176d65;
+  font-weight: 600;
+}
+tbody tr:last-child td {
+  border-bottom: 0;
+}
+tbody tr:hover td {
+  background: #eaf5f2;
+}
+th:first-child,
+td:first-child {
+  position: sticky;
+  left: 0;
+  background: #f8fafb;
+}
+th:first-child {
+  z-index: 3;
+  background: #edf4f5;
+}
+.section-boundary td:first-child {
+  background: #edf7f4;
+}
+.parameter-hint {
+  font-size: 12px;
+  color: var(--primary);
+  background: var(--tint);
+  padding: 10px;
+  margin: 0 0 8px;
+  border-radius: 6px;
+}
+.input-shell select {
+  width: 100%;
+  min-height: 36px;
+  border: 1px solid #cbd5dc;
+  border-radius: 5px;
+  color: var(--text);
+  background: white;
+  padding: 5px;
+  font-size: 12px;
+}
+.section-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+  align-items: center;
+  margin: 4px 0 22px;
+}
+.section-heading p {
+  font-size: 13px;
+  margin-top: 6px;
+}
+.comparison-key {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.comparison-key i {
+  height: 8px;
+  width: 8px;
+  border-radius: 50%;
+  background: var(--primary);
+}
+.comparison-key i + i,
+.comparison-key i:nth-of-type(2) {
+  background: var(--orange);
+  margin-left: 8px;
+}
+.outlet-comparison {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 22px;
+}
+.outlet-card {
+  padding: 24px;
+  border-top: 3px solid var(--primary);
+}
+.outlet-card.rsc {
+  border-top-color: var(--orange);
+}
+.outlet-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 20px;
+}
+.outlet-position {
+  font-size: 11px;
+  color: var(--muted);
+}
+.outlet-heading h2 {
+  margin-top: 3px;
+}
+.outlet-temperature {
+  color: var(--primary);
+  font-size: 28px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+.rsc .outlet-temperature {
+  color: #ad642e;
+}
+.outlet-temperature small {
+  font-size: 13px;
+  font-weight: 400;
+  margin-left: 5px;
+}
+.outlet-stats {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr;
+  padding: 15px 0;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+.outlet-stats > div + div {
+  border-left: 1px solid var(--border);
+  padding-left: 20px;
+}
+.outlet-stats span {
+  display: block;
+  font-size: 12px;
+  color: var(--muted);
+}
+.outlet-stats strong {
+  display: block;
+  font-size: 22px;
+  margin-top: 5px;
+  font-weight: 600;
+}
+.outlet-stats small {
+  font-size: 11px;
+  font-weight: 400;
+  margin-left: 5px;
+}
+.chart-heading {
+  display: flex;
+  justify-content: space-between;
+  font-size: 13px;
+  font-weight: 600;
+  margin-top: 22px;
+}
+.chart-heading span {
+  color: var(--muted);
+  font-weight: 400;
+  font-size: 11px;
+}
+.outlet-plot {
+  height: 300px;
+}
+.outlet-table table {
+  font-size: 12px;
+}
+.outlet-table td,
+.outlet-table th {
+  padding: 10px 12px;
+}
+.outlet-footer {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 4px;
+  padding-top: 16px;
+  font-size: 12px;
+}
+.outlet-footer > span,
+.outlet-footer > small {
+  color: var(--muted);
+}
+.outlet-footer > small {
+  grid-column: 2;
+  text-align: right;
+}
+#design-result {
+  margin-top: 24px;
+  border-top: 1px solid var(--border);
+  padding-top: 22px;
+}
+.design-heading {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 18px;
+}
+.design-heading h3 {
+  font-size: 16px;
+  margin: 0;
+}
+.design-state {
+  font-size: 12px;
+  color: var(--primary);
+}
+.design-state.failed {
+  color: var(--danger);
+}
+.design-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+.design-metrics .metric {
+  padding: 0 15px;
+}
+.design-metrics .metric:first-child {
+  padding-left: 0;
+}
+.design-metrics .metric-value {
+  font-size: 23px;
+}
+.design-note {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 18px;
+}
+.design-history {
+  margin-top: 16px;
+  font-size: 13px;
+}
+.design-history summary {
+  cursor: pointer;
+  color: var(--primary);
+}
+.design-history .table-wrap {
+  margin-top: 12px;
+}
+@media (max-width: 1100px) {
+  .outlet-comparison {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .design-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 18px 0;
+  }
+  .design-metrics .metric:nth-child(2) {
+    border: 0;
+  }
+  .design-metrics .metric:nth-child(3) {
+    padding-left: 0;
+  }
+}
+@media (max-width: 760px) {
+  .section-heading {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .outlet-card {
+    padding: 18px 14px;
+  }
+  .outlet-temperature {
+    font-size: 26px;
+  }
+  .outlet-stats strong {
+    font-size: 20px;
+  }
+  .design-metrics .metric-value {
+    font-size: 21px;
+  }
+  .outlet-footer {
+    font-size: 11px;
+  }
 }
 .raw-output {
   font:

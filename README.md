@@ -25,19 +25,24 @@ python -m venv .venv
 
 Streamlit 默认端口 8501，Flask 默认监听 `127.0.0.1:5000`。同一个项目目录仅运行一个计算任务，不要同时使用两个界面或多个 Web worker。
 
-计算在工作目录写入 UTF-8 `GASTEST.DAT`、`START.DAT`、`simulation_progress.json` 和首次迭代矩阵。推荐从项目根目录运行。命令退出码：0=收敛，2=迭代上限未收敛，其他非零=异常。未收敛输出仅供诊断。
+计算在工作目录写入 UTF-8 `GASTEST.DAT`、`START.DAT`、`simulation_progress.json` 和首次迭代矩阵。推荐从项目根目录运行。命令退出码：0=收敛且满足启用的设计目标，2=内层未收敛或目标温度未达到，其他非零=异常。未通过全部条件的输出仅供诊断。
 
 `KTRL=1` 使用默认初值；`KTRL=0` 优先读取工作目录的 START.DAT，找不到时读取输入文件同目录的 START.DAT。重启文件必须与本次网格一致，支持 Fortran D 指数；无效文件会明确报错。
 
 ## 输入与单位
 
-输入逐行读取，前 11 行为 TEXACO 参数；第 12–14 行为可选扩展。两套界面当前编辑前 11 行，保留末尾扩展行；晋华炉参数需要编辑数据文件。
+输入逐行读取，前 11 行为 TEXACO 参数；第 12–15 行为可选扩展。Web 的“辐射废锅设计”组可编辑扩展参数；Streamlit 编辑前 11 行并保留扩展行。Web 也会原样保留没有修改的可选行。
 
 | 行 | 参数 |
 |---|---|
 | 12 | KMODEL, P_DRUM (Pa), T_FW (K) |
 | 13 | TW_WALL (K), TW_RSC (K), D_RSC (m), H_RSC (m), N_RSC |
 | 14 | KRELAX_WGS, KRELAX_METH |
+| 15 | RSC_MODE, T_RSC_OUT_C (°C), H_RSC_MIN (m), H_RSC_MAX (m) |
+
+第 15 行缺失时按固定高度计算（RSC_MODE=0），与原输入兼容。RSC_MODE=1 时给定出口温度，H_RSC 作为高度搜索初值，在 H_RSC_MIN–H_RSC_MAX 内迭代寻找有效高度。各候选都重新求解全炉，按 RSC 壁面吸热量和汽水焓差同步计算废锅产汽量；汽包压力、给水温度可在 Web 修改。默认目标 780℃、高度范围 1–120 m，温度允许偏差 ±0.5℃，最多 18 个候选。目标温度、高度和产汽量不是三个独立固定量。
+
+合成气页并列展示燃烧室与辐射废锅出口的温度、干湿基组成和流量；总览提供目标温度、高度、热负荷、产汽量及设计迭代明细。目标未达到时不覆盖重启文件。方法、约束及验证见 [辐射废锅目标温度设计](docs/RSC_TARGET_DESIGN.md)。
 
 `BSLURRY` 是水煤浆总质量流量（kg/s）；`RATIO_COAL` 是煤的质量分数（0–1），干煤量为两者乘积。气体摩尔流量单位 kmol/s，标准体积沿用原程序 22.4 m³/kmol 近似。`X` 是固体碳质量分数，输出的碳转化率由它与固体流量换算。
 
@@ -54,6 +59,7 @@ Streamlit 默认端口 8501，Flask 默认监听 `127.0.0.1:5000`。同一个项
 | `src/functions/math_utils.py` | 块三对角求解与变量更新 |
 | `src/subroutines/output_results.py` | 派生量刷新、结果、重启文件及平衡诊断 |
 | `src/functions/steam_props.py` | 简化蒸汽物性与热回收产汽 |
+| `src/functions/rsc_design.py` | 目标出口温度的有界高度搜索与设计状态 |
 | `app.py` | Streamlit 界面 |
 | `web_backend/`、`web/` | Flask API、HTML/JS 界面 |
 | `fortran_base/`、`numeric_test/` | 原始代码及数值对比资料、回归测试 |
@@ -61,7 +67,7 @@ Streamlit 默认端口 8501，Flask 默认监听 `127.0.0.1:5000`。同一个项
 ## 验证及模型边界
 
 ```powershell
-.venv\Scripts\python.exe -m unittest discover -s numeric_test -p test_review.py -v
+.venv\Scripts\python.exe -m unittest discover -s numeric_test -p "test_*.py" -v
 ```
 
 审查发现、修复和本次数值复算记录见 [2026-11-02 审查报告](docs/CODE_REVIEW_2026-11-02.md)。历史 Python/Fortran 对比摘要在 `numeric_test/comparison_summary.txt`；不是本次重新编译 Fortran 的结果。

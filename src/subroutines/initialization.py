@@ -67,7 +67,7 @@ def eingab(data_path='data/Datain0.dat', output_file=None):
         return values
     
     # 在写入 COMMON 之前检查行数、列数和数值，禁止静默截断控制整数。
-    counts = (1, 5, 2, 4, 4, 2, 1, 2, 7, 3, 1, 3, 5, 2)
+    counts = (1, 5, 2, 4, 4, 2, 1, 2, 7, 3, 1, 3, 5, 2, 4)
     if len(lines) < 11:
         raise ValueError("Datain0.dat 至少需要 11 行")
     for index, count in enumerate(counts[:len(lines)]):
@@ -78,7 +78,7 @@ def eingab(data_path='data/Datain0.dat', output_file=None):
             raise ValueError(f"Datain0.dat 第 {index + 1} 行应有 {count} 个参数")
         if not all(np.isfinite(values)):
             raise ValueError(f"Datain0.dat 第 {index + 1} 行含非有限数")
-        integer_columns = {0: (0,), 1: (0,), 11: (0,), 12: (4,)}
+        integer_columns = {0: (0,), 1: (0,), 11: (0,), 12: (4,), 14: (0,)}
         for col in integer_columns.get(index, ()):
             if values[col] != int(values[col]):
                 raise ValueError(f"Datain0.dat 第 {index + 1} 行控制参数必须为整数")
@@ -174,6 +174,12 @@ def eingab(data_path='data/Datain0.dat', output_file=None):
         if len(values) >= 2:
             common.KRELAX_WGS = values[0]
             common.KRELAX_METH = values[1]
+    # Line 15: RSC_MODE, T_RSC_OUT_C, H_RSC_MIN, H_RSC_MAX；缺失则固定高度。
+    if len(lines) > 14:
+        values = parse_line(lines[14])
+        if values:
+            common.RSC_MODE = int(values[0])
+            common.T_RSC_OUT_C, common.H_RSC_MIN, common.H_RSC_MAX = values[1:]
     
     from common.input_validation import validate_params
     inputs = {name: value for name, value in vars(common).items()

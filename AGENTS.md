@@ -50,10 +50,11 @@ TEXACO（德士古）水煤浆气化炉 Fortran 程序的 Python 移植版（1D 
   - R = KRELAX · 驱动力 · FEM[i]，作为 DMAT 组分源项（能量效应经 HENTH 自动计入）
 - **蒸汽物性**：4–10 MPa 范围内简化关联式（Tsat、h″、汽化潜热），精度需以权威物性库独立验证，当前无全范围误差保证
 
-### 新增输入参数（Datain0.dat 第 12-14 行，可选）
+### 新增输入参数（Datain0.dat 第 12-15 行，可选）
 - 行12: KMODEL, P_DRUM(Pa), T_FW(K)
 - 行13: TW_WALL(K), TW_RSC(K), D_RSC(m), H_RSC(m), N_RSC
 - 行14: KRELAX_WGS, KRELAX_METH
+- 行15: RSC_MODE, T_RSC_OUT_C(°C), H_RSC_MIN(m), H_RSC_MAX(m)；缺失为固定高度模式。
 
 ### 典型参数（晋华炉3.0，已按典型工况调定）
 - P_DRUM=6.5 MPa（Tsat≈281℃），T_FW=150℃
@@ -98,3 +99,12 @@ TEXACO（德士古）水煤浆气化炉 Fortran 程序的 Python 移植版（1D 
 - `web_backend/dataparser.py` 返回可选 `heat_recovery`，数值只解析同次 GASTEST 输出；无该段的 TEXACO 输出不显示产汽数据。
 - 图表按标签延迟绘制，显示缺值为破折号，不用设计稿示例数据；改参或计算中明确标记上次结果。
 - 本次只改 HTML + Flask，Streamlit 保持独立。
+
+## 辐射废锅目标温度模式（2026-11-02）
+- RSC_MODE=0 保持固定 H_RSC；RSC_MODE=1 给定 T_RSC_OUT_C，以 H_RSC 为搜索初值，在指定高度范围内求解。
+- `src/functions/rsc_design.py` 负责有界扩展和保守割线搜索。每个候选调用 `main._iterate()` 完整求解，几何随高度更新，沿用上一候选的收敛状态；不修改 DMAT 方程和反应系数。
+- 仅当内层收敛且目标温差 ≤0.5℃ 才成功；最多 18 个候选。返回 2 还包括目标温度未达到。失败搜索不得覆盖 START.DAT。
+- 各候选的 Q_RSC=sum(QKW) 与产汽量 Q_RSC/[h_steam(P_DRUM)-h_fw(T_FW)] 联动；不得单独改显示温度或把蒸汽量当独立自由量。
+- GASTEST 追加 `RSC_DESIGN_JSON` 保存同次设计结果与轨迹。双出口流量从已有 KOLERG 对照表解析；不从当前输入反推历史结果。
+- Web 可编辑第 12–15 行，未变动可选行原样保留。Streamlit 仍只提供前 11 行编辑。
+- 方法、验证、模型适用限制见 `docs/RSC_TARGET_DESIGN.md`；新测试见 `numeric_test/test_rsc_design.py`。

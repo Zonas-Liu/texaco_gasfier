@@ -177,6 +177,7 @@
             <section id="heat-panel" class="panel heat-panel" hidden>
               <h2>热量回收</h2>
               <div id="heat-metrics" class="heat-metrics"></div>
+              <div id="design-result" hidden></div>
             </section>
             <p class="result-footnote">图表与指标来自同一次计算。</p>
           </section>
@@ -212,26 +213,17 @@
             aria-labelledby="nav-syngas"
             hidden
           >
-            <div class="two-col">
-              <section class="panel">
-                <h2>干基成分 <span>%</span></h2>
-                <div id="plot-syngas" class="plot"></div>
-                <div class="table-wrap" id="syngas-table"></div>
-              </section>
-              <section class="panel">
-                <h2>干基体积流量 <span>Nm³/s</span></h2>
-                <div id="plot-volume" class="plot"></div>
-                <div class="table-wrap" id="volume-table"></div>
-              </section>
-            </div>
-            <section class="panel">
-              <h2>湿合成气 <span>含 H₂O</span></h2>
-              <p id="wet-summary" class="muted"></p>
-              <div class="two-col">
-                <div id="plot-wet" class="plot"></div>
-                <div class="table-wrap" id="wet-table"></div>
+            <div class="section-heading">
+              <div>
+                <h2>出口合成气对比</h2>
+                <p class="muted">同一工况 · 干湿基组成与标况体积流量</p>
               </div>
-            </section>
+              <span class="comparison-key"><i></i>燃烧室 <i></i>辐射废锅</span>
+            </div>
+            <div id="outlet-comparison" class="outlet-comparison"></div>
+            <p class="section-note">
+              干基不含水蒸气；湿基包含 H₂O。流量沿用模型的标况换算口径。
+            </p>
           </section>
           <section
             id="tab-profile"

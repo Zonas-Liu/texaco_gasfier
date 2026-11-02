@@ -114,6 +114,17 @@ def _run(output_file, data_path):
     # 传入output_file以便将运行条件写入GASTEST.DAT
     eingab(data_path=data_path, output_file=output_file)
     
+    if common.RSC_MODE == 1:
+        from functions.rsc_design import run_target_design
+        return run_target_design(output_file, _iterate)
+    return _iterate(output_file)
+
+
+def _iterate(output_file, trial_label=None):
+    """在当前几何上求解；设计迭代保留上轮收敛状态作为初值。"""
+    common.ITERAT = 0
+    common.init_matrix()
+    progress_prefix = f"{trial_label} · " if trial_label else ""
     # 初始化进度文件
     write_progress(0, common.ITMAX, status="running", message="初始化完成，开始迭代")
     
@@ -171,7 +182,7 @@ def _run(output_file, data_path):
             common.ITMAX,
             residuals={"SUMFE": sumfe, "SUMWE": sumwe, "SUMX": sumx, "SUMT": sumt},
             status="running",
-            message=f"第 {common.ITERAT} 次迭代",
+            message=f"{progress_prefix}第 {common.ITERAT} 次迭代",
         )
         
         # 检查收敛性
@@ -179,13 +190,13 @@ def _run(output_file, data_path):
             output_file.write('-' * 60 + '\n')
             output_file.write(f'收敛完成! (Converged at iteration {common.ITERAT})\n')
             output_file.write('=' * 60 + '\n')
-            kolerg(output_file)
+            kolerg(output_file, write_restart=trial_label is None)
             write_progress(
                 common.ITERAT,
                 common.ITMAX,
                 residuals={"SUMFE": sumfe, "SUMWE": sumwe, "SUMX": sumx, "SUMT": sumt},
-                status="completed",
-                message=f"收敛完成，共 {common.ITERAT} 次迭代",
+                status="running" if trial_label else "completed",
+                message=f"{progress_prefix}收敛完成，共 {common.ITERAT} 次迭代",
             )
             return 0
         
@@ -197,7 +208,7 @@ def _run(output_file, data_path):
             output_file.write('达到最大迭代次数 (Reached max iterations)\n')
             output_file.write('=' * 60 + '\n')
             print(message)
-            kolerg(output_file)
+            kolerg(output_file, write_restart=trial_label is None)
             write_progress(
                 common.ITERAT,
                 common.ITMAX,
@@ -208,7 +219,7 @@ def _run(output_file, data_path):
             return 2
     
 def main(data_path='data/Datain0.dat'):
-    """返回 0=收敛，2=达到迭代上限；异常记录进度并继续向调用者抛出。"""
+    """返回 0=收敛且目标满足，2=内层或设计未收敛；异常记录进度并抛出。"""
     write_progress(0, 0, status="running", message="正在初始化")
     try:
         with open('GASTEST.DAT', 'w', encoding='utf-8') as output_file:

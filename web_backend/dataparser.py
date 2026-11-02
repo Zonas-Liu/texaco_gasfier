@@ -12,6 +12,7 @@ TEXACO 纯 HTML 方案 - 数据解析与输出处理
 """
 
 import re
+import json
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))
@@ -91,6 +92,39 @@ DEFAULT_PARAMS.update({
     "QLOSS": 0.03,
 })
 
+# 追加参数仍按固定行号读写；未改动的可选行原样保留。
+OPTIONAL_LINES = [
+    ("KMODEL", "P_DRUM", "T_FW"),
+    ("TW_WALL", "TW_RSC", "D_RSC", "H_RSC", "N_RSC"),
+    ("KRELAX_WGS", "KRELAX_METH"),
+    ("RSC_MODE", "T_RSC_OUT_C", "H_RSC_MIN", "H_RSC_MAX"),
+]
+DEFAULT_PARAMS.update({"KMODEL": 0, "P_DRUM": 6.5e6, "T_FW": 423.15,
+    "TW_WALL": 1773.0, "TW_RSC": 673.0, "D_RSC": 2.6, "H_RSC": 30.0,
+    "N_RSC": 30, "KRELAX_WGS": 2.0, "KRELAX_METH": 0.02,
+    "RSC_MODE": 0, "T_RSC_OUT_C": 780.0, "H_RSC_MIN": 1.0, "H_RSC_MAX": 120.0})
+for name, cn, unit, desc in [
+    ("KMODEL", "炉型", "", "选择 TEXACO 或晋华炉 3.0"),
+    ("RSC_MODE", "废锅计算模式", "", "目标温度模式同时求有效高度、回收热量和产汽量"),
+    ("T_RSC_OUT_C", "目标出口温度", "°C", "目标温度模式启用；需高于废锅有效壁温"),
+    ("H_RSC", "废锅有效高度", "m", "固定高度模式的给定值；目标温度模式的搜索初值"),
+    ("P_DRUM", "汽包压力", "Pa", "影响饱和蒸汽焓与产汽量，适用范围 4–10 MPa"),
+    ("T_FW", "给水温度", "K", "与饱和蒸汽焓共同决定单位回收热量的产汽量"),
+    ("D_RSC", "废锅内径", "m", "影响换热面积与气体速度"),
+    ("TW_RSC", "废锅有效壁温", "K", "积灰壁面等效辐射温度"),
+    ("TW_WALL", "水冷壁有效壁温", "K", "燃烧室渣层表面温度"),
+    ("N_RSC", "废锅网格数", "", "1–30；现有反应参数按 30 格标定"),
+    ("KRELAX_WGS", "变换反应松弛系数", "", "辐射废锅水煤气变换反应"),
+    ("KRELAX_METH", "甲烷化松弛系数", "", "辐射废锅甲烷化反应"),
+    ("H_RSC_MIN", "高度搜索下限", "m", "目标温度模式的搜索边界"),
+    ("H_RSC_MAX", "高度搜索上限", "m", "未括住目标时报告失败，不超出范围外推"),
+]:
+    PARAM_INFO[name] = {"cn": cn, "unit": unit, "desc": desc, "group": "辐射废锅设计"}
+for name in ("KMODEL", "RSC_MODE", "N_RSC"):
+    PARAM_INFO[name]["type"] = "int"
+PARAM_INFO["KMODEL"]["options"] = {"0": "TEXACO", "1": "晋华炉 3.0"}
+PARAM_INFO["RSC_MODE"]["options"] = {"0": "固定高度", "1": "目标出口温度"}
+
 OUTPUT_LABELS = {
     "Iter": "迭代次数",
     "KONVER": "收敛标志",
@@ -162,10 +196,12 @@ def parse_datain0(path: Path) -> Dict[str, Any]:
         return params
 
     text = path.read_text(encoding="utf-8", errors="ignore")
-    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    lines = text.splitlines()
 
-    for line_tuple, line in zip(PARAM_LINES, lines):
+    for line_tuple, line in zip(PARAM_LINES + OPTIONAL_LINES, lines):
         numeric_part = line.split("/")[0].strip()
+        if not numeric_part:
+            continue
         values = [v.strip() for v in numeric_part.split(",")]
         if len(values) != len(line_tuple):
             # 仅作宽容处理，按顺序取前 N 个
@@ -173,6 +209,8 @@ def parse_datain0(path: Path) -> Dict[str, Any]:
         for name, val_str in zip(line_tuple, values):
             val = float(val_str.replace("D", "E").replace("d", "e"))
             if PARAM_INFO[name].get("type") == "int":
+                if not val.is_integer():
+                    raise ValueError(f"{name} 必须为整数")
                 val = int(val)
             params[name] = val
     return params
@@ -205,6 +243,14 @@ def write_datain0(path: Path, params: Dict[str, Any]) -> None:
     if path.exists():
         existing = path.read_text(encoding="utf-8").splitlines()
         extra_lines = existing[len(comments):]
+    original = parse_datain0(path)
+    for offset, names in enumerate(OPTIONAL_LINES):
+        if any(params.get(name, original[name]) != original[name] for name in names):
+            while len(extra_lines) <= offset:
+                missing = OPTIONAL_LINES[len(extra_lines)]
+                extra_lines.append(",".join(_format_value(original[name]) for name in missing)
+                                   + "/ " + ",".join(missing))
+            extra_lines[offset] = ",".join(_format_value(params.get(name, original[name])) for name in names) + "/ " + ",".join(names)
     with open(path, "w", encoding="utf-8") as f:
         for line, cmt in zip(lines, comments):
             f.write(f"{line}/{cmt}\n")
@@ -343,8 +389,56 @@ def parse_gastest(path: Path) -> Optional[Dict[str, Any]]:
         if match:
             result["heat_recovery"][key] = float(match.group(1))
 
+    result["outlet_sections"] = parse_outlet_sections(text, result)
+    design_line = re.search(r"^RSC_DESIGN_JSON: (.+)$", text, re.MULTILINE)
+    if design_line:
+        result["rsc_design"] = json.loads(design_line.group(1))
     result["operating_conditions"] = dict(list(result["operating_conditions"].items())[:10])
     return result
+
+
+def parse_outlet_sections(text, result):
+    """读取 KOLERG 的两出口对照表；只用本次输出，不混用当前输入参数。"""
+    gases = ("O2", "CH4", "CO", "CO2", "H2S", "H2", "N2", "H2O")
+    profiles = {row["I"]: row for row in result["gas_composition_profile"]}
+    internal = {row["I"]: row for row in result["internal_profile"]}
+    if not profiles:
+        return []
+    last = max(profiles)
+    is_rsc = bool(result["heat_recovery"]) and last > 30
+    locations = [("chamber", "燃烧室出口", 30), ("rsc", "辐射废锅出口", last)] if is_rsc else [
+        ("chamber", "气化炉出口", last)]
+    flow_pairs = {}
+    if "各组分流量对比" in text:
+        block = text.split("各组分流量对比", 1)[1].split("总计", 1)[0]
+        for line in block.splitlines():
+            parts = line.split()
+            if len(parts) == 4 and parts[0] in gases and all(_is_number(v) for v in parts[1:]):
+                flow_pairs[parts[0]] = [_parse_float(v) for v in parts[1:3]]
+    sections = []
+    for column, (key, label, cell) in enumerate(locations):
+        if cell not in profiles:
+            continue
+        wet = {g: profiles[cell][g] for g in gases}
+        dry_sum = sum(wet[g] for g in gases[:-1])
+        dry = {g: wet[g] / dry_sum * 100 if dry_sum > 0 else None for g in gases[:-1]}
+        flow = {}
+        if is_rsc and len(flow_pairs) == len(gases):
+            flow = {g: flow_pairs[g][column] for g in gases}
+        elif cell == last and result["volume_flow"]:
+            flow, _, _, _ = calculate_wet_syngas(result["volume_flow"], profiles[cell])
+        if cell == last and result["syngas_composition"]:
+            dry = dict(result["syngas_composition"])
+        total_dry = sum(flow.get(g, 0) for g in gases[:-1]) if flow else None
+        total_wet = sum(flow.values()) if flow else None
+        sections.append({
+            "key": key, "label": label, "cell": cell,
+            "temperature_c": internal.get(cell, {}).get("T(C)"),
+            "dry_composition": dry, "wet_composition": wet,
+            "volume_flow": flow, "total_dry_nms": total_dry, "total_wet_nms": total_wet,
+            "h2_co_ratio": dry["H2"] / dry["CO"] if dry.get("CO") else None,
+        })
+    return sections
 
 
 def calculate_wet_syngas(dry_flow: Dict[str, float], gas_profile_last: Dict[str, float]):

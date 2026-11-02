@@ -272,6 +272,10 @@ class CommonData:
         self.T_FW = 423.15       # 给水温度 [K]
         self.KRELAX_WGS = 2.0    # WGS平衡松弛系数
         self.KRELAX_METH = 0.02  # 甲烷化平衡松弛系数
+        self.RSC_MODE = 0        # 0=固定高度，1=给定出口温度反算高度与产汽
+        self.T_RSC_OUT_C = 780.0 # 目标废锅出口温度 [°C]
+        self.H_RSC_MIN = 1.0     # 高度搜索下限 [m]
+        self.H_RSC_MAX = 120.0   # 高度搜索上限 [m]
         
         self.RAC = np.zeros(self.NZDIM)            # 反应速率
         self.Y = np.zeros(9)               # 组分摩尔分数

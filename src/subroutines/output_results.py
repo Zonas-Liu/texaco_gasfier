@@ -75,7 +75,7 @@ def RI(i):
     return common.RAC[i]
 
 
-def kolerg(output_file=None):
+def kolerg(output_file=None, write_restart=True):
     """
     主输出子程序 - 将计算结果输出到文件
     
@@ -274,6 +274,12 @@ def kolerg(output_file=None):
         outfile.write(f"      总产汽量:           {(stm_wall+stm_rsc)*3.6:>10.3f} t/h\n")
         outfile.write("=" * 60 + "\n")
     
+    if write_restart:
+        write_start(outfile)
+
+
+def write_start(outfile):
+    """保存已接受的求解状态；目标温度搜索的中间候选不得覆盖重启文件。"""
     # 保存结果到START.DAT文件
     start_dat_path = os.path.join(os.getcwd(), 'START.DAT')
     try:
