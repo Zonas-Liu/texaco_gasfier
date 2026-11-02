@@ -801,6 +801,14 @@ function renderTable(id, columns, rows, formatters = {}) {
   }).join('')}</tbody></table>`;
 }
 const OUTLET_SPECIES = ["CO", "H2", "CO2", "CH4", "N2", "H2S", "O2", "H2O"];
+const OUTLET_NAMES = {CO:"一氧化碳", H2:"氢气", CO2:"二氧化碳", CH4:"甲烷", N2:"氮气", H2S:"硫化氢", O2:"氧气", H2O:"水蒸气"};
+// 明细表整数/小数分层排版，仍沿用原有精度及微量值规则。
+function matrixNumber(value, digits = 3) {
+  if (!finite(value) || (value !== 0 && Math.abs(value) < 10 ** -digits))
+    return numberCell(value, digits);
+  const [whole, fraction] = fmt(value, digits).split('.');
+  return `<span class="matrix-number" title="原始值 ${value}"><span class="number-whole">${whole}</span>${fraction ? `<span class="number-fraction">.${fraction}</span>` : ''}</span>`;
+}
 function outletFlow(section, gas, unit) {
   if (unit === "kmol/h") return section.molar_flow_kmol_h?.[gas];
   const flow = section.volume_flow?.[gas];
@@ -830,17 +838,23 @@ function downloadOutletCsv(sections) {
   link.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
+function outletMatrixHtml(sections, unit) {
+  const flowTitle = unit === 'kmol/h' ? '摩尔流量' : '标方流量';
+  const cols = sections.map(() => '<col class="matrix-percent-col"><col class="matrix-percent-col"><col class="matrix-flow-col">').join('');
+  const groupHeaders = sections.map((section) => `<th scope="colgroup" colspan="3" class="${section.key === 'rsc' ? 'rsc' : 'chamber'}"><div class="matrix-outlet-heading"><span class="matrix-outlet-label">${escapeHtml(section.label)}</span><span class="matrix-outlet-temp">${fmt(section.temperature_c,1)}<small>℃</small></span></div></th>`).join('');
+  const columnHeaders = sections.map(() => `<th scope="col" class="group-start"><span>干基</span><small class="matrix-column-unit">%</small></th><th scope="col"><span>湿基</span><small class="matrix-column-unit">%</small></th><th scope="col" class="flow-column" title="${flowTitle}" aria-label="${flowTitle} ${escapeHtml(unit)}"><span>流量</span><small class="matrix-column-unit">${escapeHtml(unit)}</small></th>`).join('');
+  const body = OUTLET_SPECIES.map((gas) => `<tr class="${gas === 'H2O' ? 'water-row' : ''}"><th scope="row" aria-label="${GAS_LABELS[gas]} ${OUTLET_NAMES[gas]}"><div class="matrix-species"><span class="species-name">${GAS_LABELS[gas]}</span><span class="species-description">${OUTLET_NAMES[gas]}</span></div></th>${sections.map((section) => `<td class="group-start">${gas === 'H2O' ? '<span class="not-applicable" title="干基扣除水蒸气，不计入组成合计">不计</span>' : matrixNumber(section.dry_composition?.[gas])}</td><td>${matrixNumber(section.wet_composition?.[gas])}</td><td class="flow-column">${matrixNumber(outletFlow(section,gas,unit))}</td>`).join('')}</tr>`).join('');
+  return `<table class="outlet-matrix${sections.length === 1 ? ' single-outlet' : ''}">
+    <caption class="matrix-caption">出口组分及流量对照：干基扣除水蒸气，湿基和气体总流量包含水蒸气；固相灰单独列示。</caption>
+    <colgroup><col class="matrix-species-col">${cols}</colgroup>
+    <thead><tr class="outlet-column-groups"><th rowspan="2" scope="col" class="matrix-species-heading">组分<small>化学式 / 名称</small></th>${groupHeaders}</tr><tr>${columnHeaders}</tr></thead>
+    <tbody>${body}</tbody>
+    <tfoot><tr class="gas-total-row"><th scope="row">气体合计</th>${sections.map((section) => `<td class="group-start">${matrixNumber(compositionTotal(section,'dry'))}</td><td>${matrixNumber(compositionTotal(section,'wet'))}</td><td class="flow-column">${matrixNumber(outletTotal(section,unit))}</td>`).join('')}</tr>
+    <tr class="ash-row"><th scope="row">固相灰</th>${sections.map((section) => `<td colspan="3" class="group-start"><span class="matrix-mass">${matrixNumber(section.ash_kg_h,2)}<small>kg/h</small></span></td>`).join('')}</tr></tfoot>
+  </table>`;
+}
 function renderOutletMatrix(sections) {
-  const unit = state.flowUnit;
-  $('outlet-matrix').innerHTML = `<table class="outlet-matrix${sections.length === 1 ? ' single-outlet' : ''}"><caption>8 种组分 · 气体流量合计包含水蒸气；灰单独列示</caption><thead>
-    <tr class="outlet-column-groups"><th rowspan="2" scope="col">组分</th>${sections.map((s) => `<th scope="colgroup" colspan="3" class="${s.key}">${escapeHtml(s.label)}<small>${fmt(s.temperature_c,1)} ℃</small></th>`).join('')}</tr>
-    <tr>${sections.map(() => `<th scope="col" class="group-start">干基<small class="column-unit">%</small></th><th scope="col">湿基<small class="column-unit">%</small></th><th scope="col" class="flow-column">摩尔 / 标方流量<small class="column-unit">${unit}</small></th>`).join('')}</tr>
-    </thead><tbody>${OUTLET_SPECIES.map((g) => `<tr class="${g === 'H2O' ? 'water-row' : ''}"><th scope="row"><span class="species-name">${GAS_LABELS[g]}</span>${g === 'H2O' ? '<small class="row-context">水蒸气</small>' : ''}</th>${sections.map((s) => `<td class="group-start">${numberCell(s.dry_composition?.[g])}</td><td>${numberCell(s.wet_composition?.[g])}</td><td class="flow-column">${numberCell(outletFlow(s,g,unit))}</td>`).join('')}</tr>`).join('')}</tbody>
-    <tfoot><tr><th scope="row">合计</th>${sections.map((s) => `<td class="group-start">${numberCell(compositionTotal(s,'dry'))}</td><td>${numberCell(compositionTotal(s,'wet'))}</td><td class="flow-column">${numberCell(outletTotal(s,unit))}</td>`).join('')}</tr><tr class="ash-row"><th scope="row">灰<small class="column-unit">kg/h</small></th>${sections.map((s) => `<td colspan="3" class="group-start">${numberCell(s.ash_kg_h,2)}</td>`).join('')}</tr></tfoot></table>`;
-  // 列名随所选单位变化，避免将标方流量误称为摩尔流量。
-  document.querySelectorAll('#outlet-matrix thead .flow-column').forEach((cell) => {
-    cell.firstChild.textContent = unit === 'kmol/h' ? '摩尔流量' : '标方流量';
-  });
+  $('outlet-matrix').innerHTML = outletMatrixHtml(sections, state.flowUnit);
 }
 function renderOutletChart(sections) {
   const basis = state.outletBasis, keys = OUTLET_SPECIES.filter((g) => basis === 'wet' || g !== 'H2O');
@@ -871,7 +885,7 @@ function renderOutlets(sections) {
   host.innerHTML = `<div class="outlet-analysis panel">
     <section class="composition-comparison" aria-label="出口组成对比"><div class="data-panel-heading"><h3>组成对比</h3><div class="segmented" role="group" aria-label="组成基准"><button type="button" data-outlet-basis="dry">干基</button><button type="button" data-outlet-basis="wet">湿基</button></div></div><div id="plot-outlet-comparison" class="plot comparison-plot"></div><p id="composition-basis-note" class="chart-note"></p></section>
     <div class="outlet-readouts">${sections.map((s) => `<section class="outlet-readout ${s.key}"><div class="readout-heading"><h3>${escapeHtml(s.label)}<small>第 ${s.cell} 格</small></h3><strong>${fmt(s.temperature_c,1)}<small>℃</small></strong></div><dl><div><dt>干基气量 <small>Nm³/h</small></dt><dd>${numberCell(finite(s.total_dry_nms) ? s.total_dry_nms * 3600 : null,1)}</dd></div><div><dt>有效气量 <small>CO＋H₂ · Nm³/h</small></dt><dd>${numberCell(s.effective_gas_nmh,1)}</dd></div><div><dt>H₂ / CO</dt><dd>${numberCell(s.h2_co_ratio,3)}</dd></div><div><dt>灰质量流量 <small>kg/h</small></dt><dd>${numberCell(s.ash_kg_h,2)}</dd></div></dl></section>`).join('')}</div>
-    </div><section class="panel outlet-data-panel"><div class="data-panel-heading"><div><h3>组分与流量明细</h3><p>同一组分横向比较；悬停数值查看原始值。</p></div><div class="table-actions"><label for="outlet-flow-unit">流量单位</label><select id="outlet-flow-unit"><option>kmol/h</option><option>Nm³/h</option><option>Nm³/s</option></select><button class="btn btn-outline btn-small" id="download-outlets">下载 CSV</button></div></div><div class="table-wrap" id="outlet-matrix" tabindex="0" role="region" aria-label="出口组分对照表，可横向滚动"></div><p class="table-footnote">— 表示未记录或不适用；微量非零数使用科学计数法。下载保留原始精度。</p></section>`;
+    </div><section class="panel outlet-data-panel"><div class="data-panel-heading"><div><h3>组分与流量明细</h3><p>8 种气体组分<span class="table-meta-divider"></span>同次计算结果</p></div><div class="table-actions"><label for="outlet-flow-unit">流量单位</label><select id="outlet-flow-unit"><option>kmol/h</option><option>Nm³/h</option><option>Nm³/s</option></select><button class="btn btn-outline btn-small" id="download-outlets">下载 CSV</button></div></div><div class="table-wrap" id="outlet-matrix" tabindex="0" role="region" aria-label="出口组分对照表，可横向滚动"></div><p class="table-footnote"><span>— 未记录<span class="table-meta-divider"></span>不计：干基扣除水蒸气</span><span>悬停查看原值 · 下载保留原始精度</span></p></section>`;
   $('outlet-flow-unit').value = state.flowUnit;
   $('outlet-flow-unit').addEventListener('change', (event) => {state.flowUnit = event.target.value; renderOutletMatrix(sections);});
   $('download-outlets').addEventListener('click', () => downloadOutletCsv(sections));

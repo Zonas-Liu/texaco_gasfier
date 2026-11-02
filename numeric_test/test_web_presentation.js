@@ -41,6 +41,19 @@ assert.ok(csv.includes('"灰质量流量 (kg/h)","","","789.1234"'));
 assert.ok(csv.includes('"合计","100","100","456.7890123"'));
 assert.equal(run("JSON.stringify(sample)===sourceSnapshot"), true);
 
+// 表格的数字分层不能丢失小数或原值；不适用与缺失仍分别表达。
+assert.equal(run("matrixNumber(1234.56789).replace(/<[^>]*>/g,'')"), "1,234.568");
+assert.match(run("matrixNumber(1234.56789)"), /原始值 1234.56789/);
+assert.match(run("matrixNumber(1.2e-9)"), /10<sup>-9<\/sup>/);
+assert.match(run("matrixNumber(null)"), /未记录/);
+const matrix = run("outletMatrixHtml([sample,{...sample,label:'辐射废锅出口',key:'rsc'}],'kmol/h')");
+assert.equal((matrix.match(/class="not-applicable"/g) || []).length, 2);
+assert.ok(matrix.includes('一氧化碳'));
+assert.ok(matrix.includes('固相灰'));
+assert.ok(matrix.includes('aria-label="摩尔流量 kmol/h"'));
+assert.ok(run("outletMatrixHtml([sample],'Nm³/h')").includes('aria-label="标方流量 Nm³/h"'));
+assert.equal(run("JSON.stringify(sample)===sourceSnapshot"), true);
+
 // 分段着色不能改变60格的温度；交界格仅在两条线中共用。
 run(`const profile=Array.from({length:60},(_,i)=>({I:i+1,'T(C)':1200.123-i*7.345}));
      plotLine('temperature',profile,['T(C)'],'温度 (°C)',{zones:true});`);

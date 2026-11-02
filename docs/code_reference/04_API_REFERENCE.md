@@ -100,4 +100,4 @@ for section in result['outlet_sections']:
 
 用户改参后旧结果仍可能保留显示，需要标记为上次结果；未达目标的结果只作诊断。前端缺数值显示破折号，不用默认零或示例结果填补。
 
-`renderOutletChart/renderOutletMatrix`分别绘制共同组分轴和出口列组；`outletFlow/outletTotal`处理同次流量的显示单位；`numberCell`区分微量、零和缺失值；`outletCsv`输出未按显示位数舍入的数据。沿程曲线与温度分段保持原始网格值。交互口径与展示层回归命令见[图表与数据表细节](../UI_DATA_PRESENTATION.md)。
+`renderOutletChart/renderOutletMatrix`分别绘制共同组分轴和出口列组；`outletMatrixHtml`生成明细表结构；`outletFlow/outletTotal`处理同次流量的显示单位；`numberCell/matrixNumber`区分微量、零和缺失值，并在明细表中对整数/小数作视觉分层；`outletCsv`输出未按显示位数舍入的数据。沿程曲线与温度分段保持原始网格值。交互口径与展示层回归命令见[图表与数据表细节](../UI_DATA_PRESENTATION.md)。
