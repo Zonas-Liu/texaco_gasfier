@@ -328,6 +328,21 @@ def parse_gastest(path: Path) -> Optional[Dict[str, Any]]:
 
     result["outlet"] = parse_outlet(text)
 
+    # 晋华炉汇总来自本次输出，而非当前输入，避免改参后混用旧结果与新工况。
+    heat_fields = {
+        "汽包压力": "drum_pressure_mpa",
+        "水冷壁产汽量": "steam_wall_tph",
+        "辐射废锅产汽量": "steam_rsc_tph",
+        "总产汽量": "steam_total_tph",
+        "水冷壁热负荷": "heat_wall_mw",
+        "辐射废锅热负荷": "heat_rsc_mw",
+    }
+    result["heat_recovery"] = {}
+    for label, key in heat_fields.items():
+        match = re.search(r"^\s*" + re.escape(label) + r":\s*([-+]?\d+(?:\.\d+)?)", text, re.MULTILINE)
+        if match:
+            result["heat_recovery"][key] = float(match.group(1))
+
     result["operating_conditions"] = dict(list(result["operating_conditions"].items())[:10])
     return result
 

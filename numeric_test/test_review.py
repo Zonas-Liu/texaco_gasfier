@@ -158,6 +158,29 @@ class ReviewTests(unittest.TestCase):
         self.assertEqual(self.input.read_text().splitlines()[11:], lines[11:])
         self.assertEqual(dataparser.PARAM_INFO['BSLURRY']['unit'], 'kg/s')
 
+    def test_web_heat_summary_uses_output_fields(self):
+        output = self.directory / 'GASTEST.DAT'
+        output.write_text('''出口温度: 756.862 C    碳转化率: 1.0000
+      汽包压力: 6.50 MPa
+      水冷壁产汽量: 2.129 t/h
+      辐射废锅产汽量: 24.318 t/h
+      总产汽量: 26.446 t/h
+      水冷壁热负荷: 1.266 MW
+      辐射废锅热负荷: 14.467 MW
+''', encoding='utf-8')
+        result = dataparser.parse_gastest(output)
+        self.assertEqual(result['heat_recovery'], {
+            'drum_pressure_mpa': 6.5, 'steam_wall_tph': 2.129,
+            'steam_rsc_tph': 24.318, 'steam_total_tph': 26.446,
+            'heat_wall_mw': 1.266, 'heat_rsc_mw': 14.467,
+        })
+        self.assertEqual(result['outlet']['Temperature(C)'], 756.862)
+
+    def test_web_texaco_does_not_fabricate_heat_summary(self):
+        output = self.directory / 'GASTEST.DAT'
+        output.write_text('出口温度: 1145.283 C    碳转化率: 1.0000', encoding='utf-8')
+        self.assertEqual(dataparser.parse_gastest(output)['heat_recovery'], {})
+
     def test_output_refresh_and_restart_roundtrip(self):
         self.initialize()
         common.FEM[:] = -1
