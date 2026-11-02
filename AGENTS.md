@@ -127,3 +127,9 @@ TEXACO（德士古）水煤浆气化炉 Fortran 程序的 Python 移植版（1D 
 - KMODEL=1 的 X 列差分步长为 `max(1e-12,min(1e-4,abs(X)*0.01))`；其余变量和 KMODEL=0 仍为 1e-4。避免微量残碳附近固定步长引起修正量振荡，不放宽任何 SKON 阈值。
 - ENTKOL 以 `(T,PWK)` 缓存完整十种组分焓和温度导数，缓存仅存活于一次 GASIFIER 组装。ENTFED 每次组装计算一次。局部物性更新包含本格和上游格；XMASS 的上游 ROS 必须有效，不能无条件将其他物性更新也裁成单格。
 - 结果输出仍全炉刷新派生量。基准脚本 `numeric_test/benchmark_solver.py` 在隔离目录保存状态/计时；`--linear-only` 比较同一实际雅可比的求解耗时及后向误差。细节见 `docs/SOLVER_PERFORMANCE.md`；回归见 `numeric_test/test_solver_performance.py`。
+
+## 元素守恒实验发现（2026-11-02，正式方程尚未修正）
+- 典型工况进口至燃烧室出口的C/H/O/N/S及灰闭合；废锅段C少669.245 kg/h、H多13.366 kg/h、O少1784.653 kg/h。数值收敛不能作为元素守恒证明。
+- 根因为CO2基础行已除以1.2、H2基础行已乘以1.02，后加RSC源项却未同步缩放。收紧阈值或改回legacy线性后端均不能消除该缺口。
+- `numeric_test/check_element_balance.py` 独立计算物理进口和湿气+残碳+灰出口；按正常KMODEL=1/KCHECK=0、固定进料/固定高度开展隔离对照。候选仅在实验副本将新增CO2/H2源项分别除以1.2、乘以1.02，已恢复该工况守恒，未改正式src。
+- 原废锅组分、温度及产汽结果需在正式修正后重验；候选单工况通过不等于全操作范围验证。证据及影响见 `docs/ELEMENT_BALANCE_EXPERIMENT.md` 和 `docs/element_balance_results.json`。
