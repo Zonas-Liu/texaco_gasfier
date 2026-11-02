@@ -48,8 +48,8 @@ def _calculate_dmat_for_cell(
         common.FEM[i] += common.FEMF[j, i]
     
     # 计算气体速度U0 (对所有单元格)
-    for ii in range(common.NZRA, common.NZRE + 1):
-        common.U0[ii] = common.FEM[ii] * common.RAG * common.T[ii] / (common.PWK * common.AT[ii])
+    active = slice(common.NZRA, common.NZRE + 1)
+    common.U0[active] = common.FEM[active] * common.RAG * common.T[active] / (common.PWK * common.AT[active])
     
     # 计算组分摩尔分数Y(J)
     for j in range(1, common.NGAS + 1):
@@ -470,6 +470,19 @@ def gasifier(
     # 局部变量
     sum_ri = 0.0
     dalt = np.zeros(12)  # 存储DMAT的初始值 (1-based, index 0 unused)
+
+    # ENTKOL 物性只依赖温度/压力，在一次组装内复用；不跨运行保存缓存。
+    # 保留外部注入的回调约定，只有原生实现启用此优化。
+    from subroutines.output_results import entkol, entfed
+    from subroutines.mass_flow import xmass
+    native_entkol = entkol_func is entkol
+    native_xmass = xmass_func is xmass
+    if entkol_func is entkol:
+        enthalpy_cache = {}
+        entkol(cache=enthalpy_cache)
+    if entfed_func is entfed:
+        entfed_func()
+        entfed_func = lambda: None  # 进料条件在一次牛顿迭代内不变
     
     # ============================================================
     # 关键修复1: 先调用XMASS计算所有Cell的固体参数
@@ -503,6 +516,10 @@ def gasifier(
     
     # 主循环: 遍历每个网格单元
     for i in range(common.NZRA, common.NZRE + 1):  # NZRA到NZRE (inclusive)
+        # 方程仅依赖本格及上游格；不为每次扰动重算全炉物性。
+        cells = range(max(common.NZRA, i - 1), i + 1)
+        local_xmass = (lambda: xmass(cells=cells)) if native_xmass else xmass_func
+        local_entkol = (lambda: entkol(cells=cells, cache=enthalpy_cache)) if native_entkol else entkol_func
         
         # ============================================================
         # 1. 初始化矩阵为零
@@ -523,12 +540,11 @@ def gasifier(
             # 在计算DMAT之前恢复XMS等变量，避免数值微分副作用
             # 这确保每次计算使用正确的固体质量
             if k_state > 0:
-                pass
-                for ii in range(common.NZRA, common.NZRE + 1):
-                    common.XMS[ii] = xms_orig[ii]
-                    common.TRZ[ii] = trz_orig[ii]
-                    common.US[ii] = us_orig[ii]
-                    common.U0[ii] = u0_orig[ii]
+                active = slice(common.NZRA, common.NZRE + 1)
+                common.XMS[active] = xms_orig[active]
+                common.TRZ[active] = trz_orig[active]
+                common.US[active] = us_orig[active]
+                common.U0[active] = u0_orig[active]
             
             # 计算DMAT - 对应Fortran标签53
             # 每次扰动后都需要重新计算DMAT
@@ -537,7 +553,7 @@ def gasifier(
             
             rri = _calculate_dmat_for_cell(
                 i,
-                xmass_func, entfed_func, entkol_func,
+                local_xmass, entfed_func, local_entkol,
                 xk1_func, xk2_func, xk3_func, xk4_func, xk5_func, xk6_func,
                 a1_func, a2_func, a3_func, a4_func, a5_func,
                 phi_func, ri_func,
@@ -557,24 +573,24 @@ def gasifier(
                 if kk <= 0:
                     # 恢复当前单元格的扰动
                     if k_state <= common.NVE:
-                        common.FEMF[k_state, i] -= 0.0001
+                        common.FEMF[k_state, i] -= delta
                     elif k_state == common.NSGP:
-                        common.WE[i] -= 0.0001
+                        common.WE[i] -= delta
                     elif k_state == common.NSGP1:
-                        common.X[i] -= 0.0001
+                        common.X[i] -= delta
                     elif k_state == common.NVWS:
-                        common.T[i] -= 0.0001
+                        common.T[i] -= delta
                 else:
                     # 恢复上游单元格的扰动
                     if i > common.NZRA:
                         if kk <= common.NVE:
-                            common.FEMF[kk, i - 1] -= 0.0001
+                            common.FEMF[kk, i - 1] -= delta
                         elif kk == common.NSGP:
-                            common.WE[i - 1] -= 0.0001
+                            common.WE[i - 1] -= delta
                         elif kk == common.NSGP1:
-                            common.X[i - 1] -= 0.0001
+                            common.X[i - 1] -= delta
                         elif kk == common.NVWS:
-                            common.T[i - 1] -= 0.0001
+                            common.T[i - 1] -= delta
                 
                 # 计算BMAT或AMAT元素 - 对应Fortran标签70
                 pass
@@ -583,12 +599,12 @@ def gasifier(
                     # 计算BMAT (对角块)
                     k_col = k_state
                     for j in range(1, common.NVWS + 1):
-                        common.BMAT[j, k_col, i] = (common.DMAT[j, i] - dalt[j]) / 0.0001
+                        common.BMAT[j, k_col, i] = (common.DMAT[j, i] - dalt[j]) / delta
                 else:
                     # 计算AMAT (下对角块)
                     kk_col = kk
                     for j in range(1, common.NVWS + 1):
-                        common.AMAT[j, kk_col, i - 1] = (common.DMAT[j, i] - dalt[j]) / 0.0001
+                        common.AMAT[j, kk_col, i - 1] = (common.DMAT[j, i] - dalt[j]) / delta
                 
                 # 检查是否继续数值微分 - 对应Fortran: IF (K.LE.NSGP1) GOTO 80
                 if k_state <= common.NSGP1:
@@ -609,19 +625,26 @@ def gasifier(
             
             # 增加k_state并扰动下一个变量
             k_state += 1
+            delta = 0.0001
+            # 残碳接近零时，固定 1e-4 扰动远大于本身，导致反应核导数失真。
+            # 晋华炉使用相对步长；TEXACO 保留原 Fortran 差分路径。
+            column = (k_state - 1) % common.NVWS + 1
+            cell = i if k_state <= common.NVWS else i - 1
+            if common.KMODEL == 1 and column == common.NSGP1 and cell >= common.NZRA:
+                delta = max(1e-12, min(0.0001, abs(common.X[cell]) * 0.01))
             
             # 第一部分扰动: 当前单元格变量 (k_state <= NVWS)
             if k_state <= common.NVE:
-                common.FEMF[k_state, i] += 0.0001
+                common.FEMF[k_state, i] += delta
                 continue  # GOTO 53，重新计算DMAT
             elif k_state == common.NSGP:
-                common.WE[i] += 0.0001
+                common.WE[i] += delta
                 continue  # GOTO 53
             elif k_state == common.NSGP1:
-                common.X[i] += 0.0001
+                common.X[i] += delta
                 continue  # GOTO 53
             elif k_state == common.NVWS:
-                common.T[i] += 0.0001
+                common.T[i] += delta
                 continue  # GOTO 53
             
             # 第二部分扰动: 上游单元格变量 (k_state > NVWS)
@@ -630,20 +653,20 @@ def gasifier(
             
             if kk <= common.NVE:
                 if i > common.NZRA:
-                    common.FEMF[kk, i - 1] += 0.0001
+                    common.FEMF[kk, i - 1] += delta
                 # 即使i==NZRA也要继续循环(不扰动)
                 continue  # GOTO 53
             elif kk == common.NSGP:
                 if i > common.NZRA:
-                    common.WE[i - 1] += 0.0001
+                    common.WE[i - 1] += delta
                 continue  # GOTO 53
             elif kk == common.NSGP1:
                 if i > common.NZRA:
-                    common.X[i - 1] += 0.0001
+                    common.X[i - 1] += delta
                 continue  # GOTO 53
             elif kk == common.NVWS:
                 if i > common.NZRA:
-                    common.T[i - 1] += 0.0001
+                    common.T[i - 1] += delta
                 continue  # GOTO 53
             
             # 所有扰动完成，退出循环

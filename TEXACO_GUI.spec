@@ -7,6 +7,7 @@ datas += collect_data_files('streamlit')
 # 显式声明 Streamlit 运行时容易缺失的隐藏导入
 # hooks/hook-streamlit.py 中已使用 collect_submodules('streamlit') 兜底
 hiddenimports = [
+    'scipy.linalg',
     'streamlit.runtime.scriptrunner.magic_funcs',
     'streamlit.web.cli',
     'streamlit.web.bootstrap',

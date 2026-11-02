@@ -1,0 +1,466 @@
+{
+  "date": "2026-11-02",
+  "baseline_commit": "3fadb108a590db6ea78772219f034790609b3909",
+  "input_sha256": "2d910a5f8dc4edce80f851b7871d15e0a2d13b1bb58cb0be0e925fc91798c980",
+  "environment": {
+    "platform": "Windows",
+    "python": "3.14.0",
+    "numpy": "2.4.6",
+    "scipy": "1.18.1"
+  },
+  "unittest_passed": 36,
+  "before": [
+    {
+      "case": "fixed",
+      "returncode": 0,
+      "seconds": 161.20744299999205,
+      "iterations": 63,
+      "temperature_c": 756.8622410462505,
+      "total_iterations": 63
+    },
+    {
+      "case": "texaco",
+      "returncode": 0,
+      "seconds": 45.981205100019,
+      "iterations": 62,
+      "temperature_c": 1145.283048704397,
+      "total_iterations": 62
+    },
+    {
+      "case": "high-oxygen",
+      "returncode": 2,
+      "seconds": 259.88503279999713,
+      "iterations": 100,
+      "temperature_c": 742.3976807638103,
+      "total_iterations": 100
+    },
+    {
+      "case": "combined",
+      "returncode": 0,
+      "seconds": 251.55511169999954,
+      "iterations": 3,
+      "temperature_c": 779.9508320990689,
+      "corrections": {
+        "SUMFE": 4.27361893686803e-06,
+        "SUMWE": 6.941837071906656e-06,
+        "SUMX": 1.1348474830786772e-06,
+        "SUMT": 0.003826529707368216
+      },
+      "python": "3.14.0",
+      "numpy": "2.4.6",
+      "total_iterations": 97
+    }
+  ],
+  "after": [
+    {
+      "case": "fixed",
+      "returncode": 0,
+      "seconds": 9.070890400005737,
+      "iterations": 63,
+      "temperature_c": 756.8622411516398,
+      "corrections": {
+        "SUMFE": 3.734062976735361e-07,
+        "SUMWE": 1.5211574325391931e-10,
+        "SUMX": 2.2660329930597946e-11,
+        "SUMT": 6.912781122205704e-05
+      },
+      "python": "3.14.0",
+      "numpy": "2.4.6",
+      "total_iterations": 63
+    },
+    {
+      "case": "texaco",
+      "returncode": 0,
+      "seconds": 5.693823400011752,
+      "iterations": 62,
+      "temperature_c": 1145.283048704397,
+      "corrections": {
+        "SUMFE": 2.652245060638479e-06,
+        "SUMWE": 5.580067685474978e-06,
+        "SUMX": 4.428519291361937e-06,
+        "SUMT": 0.002982781059689515
+      },
+      "python": "3.14.0",
+      "numpy": "2.4.6",
+      "total_iterations": 62
+    },
+    {
+      "case": "high-oxygen",
+      "returncode": 0,
+      "seconds": 9.432733800000278,
+      "iterations": 66,
+      "temperature_c": 742.397665767717,
+      "corrections": {
+        "SUMFE": 1.821347629603825e-09,
+        "SUMWE": 1.2250562258579099e-13,
+        "SUMX": 1.7807011225269604e-14,
+        "SUMT": 3.1254298006878478e-06
+      },
+      "python": "3.14.0",
+      "numpy": "2.4.6",
+      "total_iterations": 66
+    },
+    {
+      "case": "low-load",
+      "returncode": 0,
+      "seconds": 9.130163299996639,
+      "iterations": 64,
+      "temperature_c": 732.1337543392289,
+      "corrections": {
+        "SUMFE": 3.5624166893417447e-09,
+        "SUMWE": 1.0600404276770474e-11,
+        "SUMX": 1.941736301992662e-12,
+        "SUMT": 5.379309392030359e-06
+      },
+      "python": "3.14.0",
+      "numpy": "2.4.6",
+      "total_iterations": 64
+    },
+    {
+      "case": "combined",
+      "returncode": 0,
+      "seconds": 13.647554800001672,
+      "iterations": 3,
+      "temperature_c": 779.9508324660709,
+      "corrections": {
+        "SUMFE": 4.235229245753023e-07,
+        "SUMWE": 3.5173613499637474e-10,
+        "SUMX": 4.980386759240342e-11,
+        "SUMT": 0.0005073667679199651
+      },
+      "python": "3.14.0",
+      "numpy": "2.4.6",
+      "total_iterations": 95
+    }
+  ],
+  "state_max_absolute_differences": {
+    "fixed": {
+      "T": 0.00014965628338359238,
+      "FEMF": 5.29894585432622e-08,
+      "WE": 4.6985650659081557e-07,
+      "X": 3.7290279809377655e-07,
+      "QKW": 0.013715460430830717,
+      "START_identical": false
+    },
+    "texaco": {
+      "T": 0.0,
+      "FEMF": 0.0,
+      "WE": 0.0,
+      "X": 0.0,
+      "QKW": 0.0,
+      "START_identical": true
+    },
+    "combined": {
+      "T": 0.00046486492101394106,
+      "FEMF": 1.6933248375705645e-07,
+      "WE": 1.248463796121868e-06,
+      "X": 1.0024465713981809e-06,
+      "QKW": 0.16340640746057034,
+      "START_identical": false
+    }
+  },
+  "linear_solver": {
+    "legacy": {
+      "median_seconds": 0.049470699988887645,
+      "samples": 20,
+      "componentwise_backward_error": 1.3385343211980881e-10
+    },
+    "scipy": {
+      "median_seconds": 0.0012812000059057027,
+      "samples": 20,
+      "componentwise_backward_error": 2.83483428737042e-14
+    },
+    "max_correction_difference": 2.0235427655279636e-05
+  },
+  "acceptance": [
+    {
+      "case": "high-oxygen-recover",
+      "returncode": 0,
+      "last_inner_iterations": 3,
+      "feed": {
+        "success": true,
+        "overall_success": true,
+        "evaluations": 7,
+        "oxygen_coal_ratio": 0.9800034920631538,
+        "slurry_kg_s": 14.001783348832479,
+        "temperature_error_c": -0.0046365708294615615,
+        "flow_error_nmh": 6.168187002534978
+      },
+      "rsc": {},
+      "outlets": [
+        {
+          "key": "chamber",
+          "label": "燃烧室出口",
+          "cell": 30,
+          "temperature_c": 1227.9953634291705,
+          "ash_kg_h": 4536.577805021726,
+          "effective_gas_nmh": 49624.628187002534
+        },
+        {
+          "key": "rsc",
+          "label": "辐射废锅出口",
+          "cell": 60,
+          "temperature_c": 756.8813758091088,
+          "ash_kg_h": 4536.577805021726,
+          "effective_gas_nmh": 48423.92864170697
+        }
+      ]
+    },
+    {
+      "case": "lower-load",
+      "returncode": 0,
+      "last_inner_iterations": 3,
+      "feed": {
+        "success": true,
+        "overall_success": true,
+        "evaluations": 7,
+        "oxygen_coal_ratio": 0.9724065962176585,
+        "slurry_kg_s": 11.786578588850968,
+        "temperature_error_c": -0.009774488761195244,
+        "flow_error_nmh": 5.272658709276584
+      },
+      "rsc": {},
+      "outlets": [
+        {
+          "key": "chamber",
+          "label": "燃烧室出口",
+          "cell": 30,
+          "temperature_c": 1199.9902255112388,
+          "ash_kg_h": 3818.851462787715,
+          "effective_gas_nmh": 42005.27265870928
+        },
+        {
+          "key": "rsc",
+          "label": "辐射废锅出口",
+          "cell": 60,
+          "temperature_c": 730.4405605674875,
+          "ash_kg_h": 3818.851462787715,
+          "effective_gas_nmh": 40882.61420069821
+        }
+      ]
+    },
+    {
+      "case": "rsc-one",
+      "returncode": 0,
+      "last_inner_iterations": 63,
+      "feed": {},
+      "rsc": {},
+      "outlets": [
+        {
+          "key": "chamber",
+          "label": "燃烧室出口",
+          "cell": 30,
+          "temperature_c": 1227.9802453932693,
+          "ash_kg_h": 4536.0,
+          "effective_gas_nmh": 49618.46122175218
+        },
+        {
+          "key": "rsc",
+          "label": "辐射废锅出口",
+          "cell": 31,
+          "temperature_c": 866.4675549711548,
+          "ash_kg_h": 4536.0,
+          "effective_gas_nmh": 49798.763530017066
+        }
+      ]
+    },
+    {
+      "case": "secondary-oxygen",
+      "returncode": 0,
+      "last_inner_iterations": 63,
+      "feed": {},
+      "rsc": {},
+      "outlets": [
+        {
+          "key": "chamber",
+          "label": "燃烧室出口",
+          "cell": 30,
+          "temperature_c": 1234.2398862996524,
+          "ash_kg_h": 4535.999999999999,
+          "effective_gas_nmh": 49583.70087833752
+        },
+        {
+          "key": "rsc",
+          "label": "辐射废锅出口",
+          "cell": 60,
+          "temperature_c": 757.2663647078604,
+          "ash_kg_h": 4535.999999999999,
+          "effective_gas_nmh": 48405.36650231703
+        }
+      ]
+    },
+    {
+      "case": "combined",
+      "returncode": 0,
+      "last_inner_iterations": 3,
+      "feed": {
+        "success": true,
+        "overall_success": true,
+        "evaluations": 7,
+        "oxygen_coal_ratio": 0.9787488972501428,
+        "slurry_kg_s": 14.670892544895954,
+        "temperature_error_c": -5.022797267884016e-06,
+        "flow_error_nmh": 0.14928185183089226
+      },
+      "rsc": {
+        "success": true,
+        "target_temperature_c": 780.0,
+        "evaluations": 5,
+        "temperature_c": 779.9508324660709,
+        "steam_rsc_tph": 23.203133526001526,
+        "height_m": 26.72998282197076,
+        "temperature_error_c": -0.049167533929107776
+      },
+      "outlets": [
+        {
+          "key": "chamber",
+          "label": "燃烧室出口",
+          "cell": 30,
+          "temperature_c": 1227.9999949772027,
+          "ash_kg_h": 4753.369184546293,
+          "effective_gas_nmh": 52000.14928185184
+        },
+        {
+          "key": "rsc",
+          "label": "辐射废锅出口",
+          "cell": 60,
+          "temperature_c": 779.9508324660709,
+          "ash_kg_h": 4753.369184546293,
+          "effective_gas_nmh": 50798.17602581823
+        }
+      ]
+    },
+    {
+      "case": "forward",
+      "returncode": 0,
+      "last_inner_iterations": 63,
+      "feed": {},
+      "rsc": {},
+      "outlets": [
+        {
+          "key": "chamber",
+          "label": "燃烧室出口",
+          "cell": 30,
+          "temperature_c": 1227.9802453932762,
+          "ash_kg_h": 4535.999999999999,
+          "effective_gas_nmh": 49618.46122175182
+        },
+        {
+          "key": "rsc",
+          "label": "辐射废锅出口",
+          "cell": 60,
+          "temperature_c": 756.8622411516398,
+          "ash_kg_h": 4535.999999999999,
+          "effective_gas_nmh": 48417.82849224748
+        }
+      ]
+    },
+    {
+      "case": "inner_failure",
+      "returncode": 2,
+      "last_inner_iterations": 1,
+      "feed": {
+        "success": false,
+        "overall_success": false,
+        "evaluations": 1,
+        "oxygen_coal_ratio": 0.98,
+        "slurry_kg_s": 13.999999999999996,
+        "temperature_error_c": 99.36999999999989,
+        "flow_error_nmh": -39758.68784
+      },
+      "rsc": {},
+      "outlets": [
+        {
+          "key": "chamber",
+          "label": "燃烧室出口",
+          "cell": 30,
+          "temperature_c": 1327.35,
+          "ash_kg_h": 2292.7713443058237,
+          "effective_gas_nmh": 9859.77216
+        },
+        {
+          "key": "rsc",
+          "label": "辐射废锅出口",
+          "cell": 60,
+          "temperature_c": 877.35,
+          "ash_kg_h": 2292.7713443058237,
+          "effective_gas_nmh": 9859.77216
+        }
+      ]
+    },
+    {
+      "case": "recover-v2",
+      "returncode": 0,
+      "last_inner_iterations": 5,
+      "feed": {
+        "success": true,
+        "overall_success": true,
+        "evaluations": 4,
+        "oxygen_coal_ratio": 0.9800042618687921,
+        "slurry_kg_s": 14.005243514096167,
+        "temperature_error_c": 0.031680506326665636,
+        "flow_error_nmh": 18.275125829786703
+      },
+      "rsc": {},
+      "outlets": [
+        {
+          "key": "chamber",
+          "label": "燃烧室出口",
+          "cell": 30,
+          "temperature_c": 1228.0116805063267,
+          "ash_kg_h": 4537.698898567106,
+          "effective_gas_nmh": 49636.735125829786
+        },
+        {
+          "key": "rsc",
+          "label": "辐射废锅出口",
+          "cell": 60,
+          "temperature_c": 756.9172484099942,
+          "ash_kg_h": 4537.698898567106,
+          "effective_gas_nmh": 48435.88414196768
+        }
+      ]
+    },
+    {
+      "case": "rsc-failure-v2",
+      "returncode": 2,
+      "last_inner_iterations": 4,
+      "feed": {
+        "success": true,
+        "overall_success": false,
+        "evaluations": 1,
+        "oxygen_coal_ratio": 0.98,
+        "slurry_kg_s": 13.999999999999996,
+        "temperature_error_c": 0.0002453970159876917,
+        "flow_error_nmh": 0.0012217231778777204
+      },
+      "rsc": {
+        "success": false,
+        "target_temperature_c": 401.0,
+        "evaluations": 4,
+        "temperature_c": 567.0071802451299,
+        "steam_rsc_tph": 46.81268194988499,
+        "height_m": 120.0,
+        "temperature_error_c": 166.00718024512992
+      },
+      "outlets": [
+        {
+          "key": "chamber",
+          "label": "燃烧室出口",
+          "cell": 30,
+          "temperature_c": 1227.980245397016,
+          "ash_kg_h": 4535.999999999999,
+          "effective_gas_nmh": 49618.46122172318
+        },
+        {
+          "key": "rsc",
+          "label": "辐射废锅出口",
+          "cell": 60,
+          "temperature_c": 567.0071802451299,
+          "ash_kg_h": 4535.999999999999,
+          "effective_gas_nmh": 47903.24561443764
+        }
+      ]
+    }
+  ]
+}

@@ -555,7 +555,7 @@ def newtra(omega=1.0):
     参数:
         omega: 松弛因子 (0 < omega <= 1)，默认1.0（无松弛）
     
-    注意：变量缩放在gasifier中应用，在blktrd中处理
+    注意：SciPy 路径在 solve_banded_blocks 中按方程行缩放；BLKTRD 保留历史路径。
     """
     if common.KTRLT == 1:
         neqn = common.NVWS
@@ -563,10 +563,52 @@ def newtra(omega=1.0):
         neqn = common.NVWS - 1
     
     # 执行块三对角求解
-    blktrd(neqn, common.NZEL2)
+    # TEXACO 基准保留逐位对照路径；晋华炉默认采用 SciPy/LAPACK 带状求解。
+    backend = os.environ.get('TEXACO_LINEAR_SOLVER', 'legacy' if common.KMODEL == 0 else 'scipy')
+    if backend == 'scipy':
+        solve_banded_blocks(neqn, common.NZEL2)
+    elif backend == 'legacy':
+        blktrd(neqn, common.NZEL2)
+    else:
+        raise ValueError(f'未知线性求解器 {backend!r}，应为 scipy 或 legacy')
     
     # 应用松弛因子更新变量
     kolon1(omega=omega)
+
+
+def solve_banded_blocks(nmat, nst):
+    """将 Fortran 1-based 块三对角矩阵交给 SciPy 的 LAPACK 带状求解器。
+
+    AMAT[:,:,i] 是第 i+1 行块的下对角，CMAT[:,:,i] 是第 i 行块的上对角。
+    不构造稠密全矩阵，不修改 A/B/C；只写回牛顿修正量 DMAT。
+    """
+    from scipy.linalg import solve_banded
+
+    width = 2 * nmat - 1
+    bands = np.zeros((2 * width + 1, nmat * nst))
+    rows, cols = np.indices((nmat, nmat))
+    # 能量行与组分行相差多个数量级，逐行缩放避免主元选择受单位支配。
+    # 仅缩放线性方程，解、物理方程及外层收敛阈值不变。
+    scales = np.empty((nst, nmat))
+    for i in range(nst):
+        scales[i] = np.max(np.abs(common.BMAT[1:nmat+1, 1:nmat+1, i+1]), axis=1)
+        if i > 0:
+            scales[i] = np.maximum(scales[i], np.max(np.abs(common.AMAT[1:nmat+1, 1:nmat+1, i]), axis=1))
+        if i + 1 < nst:
+            scales[i] = np.maximum(scales[i], np.max(np.abs(common.CMAT[1:nmat+1, 1:nmat+1, i+1]), axis=1))
+    scales[scales == 0] = 1.0  # 保留零行，由 LAPACK 明确报告奇异矩阵
+    for i in range(nst):
+        column = i * nmat + cols
+        bands[width + rows - cols, column] = common.BMAT[1:nmat+1, 1:nmat+1, i+1] / scales[i, :, None]
+        if i + 1 < nst:
+            bands[width + nmat + rows - cols, column] = common.AMAT[1:nmat+1, 1:nmat+1, i+1] / scales[i+1, :, None]
+            bands[width - nmat + rows - cols, column + nmat] = common.CMAT[1:nmat+1, 1:nmat+1, i+1] / scales[i, :, None]
+    rhs = (common.DMAT[1:nmat+1, 1:nst+1].T / scales).ravel()
+    solution = solve_banded((width, width), bands, rhs, overwrite_ab=True,
+                            overwrite_b=True, check_finite=True)
+    if not np.all(np.isfinite(solution)):
+        raise FloatingPointError('带状求解器产生非有限牛顿修正量')
+    common.DMAT[1:nmat+1, 1:nst+1] = solution.reshape(nst, nmat).T
 
 
 def blktrd(nmat, nst):

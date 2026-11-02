@@ -61,7 +61,9 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--reuse-forward', action='store_true', help='复用此次验收已完成的正算报告')
     parser.add_argument('--cases', nargs='+', help='只运行指定案例')
+    parser.add_argument('--output', type=Path, default=DEST, help='隔离验收目录')
     args = parser.parse_args()
+    DEST = args.output.resolve()
     base = json.loads((DEST / 'forward/report.json').read_text(encoding='utf-8')) if args.reuse_forward else run_case('forward', {})
     chamber = base['outlets'][0]
     targets = dict(FEED_MODE=1, T_CHAMBER_C=chamber['temperature_c'],
@@ -71,6 +73,11 @@ if __name__ == '__main__':
         ('combined', dict(targets, T_CHAMBER_C=1228, EFFECTIVE_GAS_NMH=52000, RSC_MODE=1), 0),
         ('inner_failure', dict(targets, ITMAX=1), 2),
         ('rsc-failure-v2', dict(targets, RSC_MODE=1, T_RSC_OUT_C=401), 2),
+        ('high-oxygen-recover', dict(targets, FOXY=1.04, BSLURRY=12,
+                                     T_CHAMBER_C=1228, EFFECTIVE_GAS_NMH=49618.46), 0),
+        ('lower-load', dict(targets, T_CHAMBER_C=1200, EFFECTIVE_GAS_NMH=42000), 0),
+        ('rsc-one', dict(N_RSC=1), 0),
+        ('secondary-oxygen', dict(OX_PART=.9), 0),
     ]
     if args.cases:
         cases = [c for c in cases if c[0] in args.cases]

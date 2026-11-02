@@ -24,7 +24,7 @@ TEXACO（德士古）水煤浆气化炉 Fortran 程序的 Python 移植版（1D 
 ## 关键设计约束
 - **ENTHP 焓值含标准生成焓**（如 CO: HMT=-110594.12 kJ/kmol，ENTHP 返回时乘 1000 转为 J/kmol），因此通过 DMAT 组分源项改变
   FEMF 时，反应热自动计入能量平衡，无需额外处理
-- DMAT 的雅可比通过数值微分（扰动 0.0001）自动获得：新增任何连续的源项/汇项都会被
+- DMAT 的雅可比通过数值微分自动获得（通常扰动 0.0001；KMODEL=1 的残碳 X 使用下述相对步长）：新增任何连续的源项/汇项都会被
   自动线性化，无需手写偏导
 - 挥发分与煤浆进料分布在第 1 格；OX_PART<1 时第 N2FED=7 格可有二次氧气进料，RSC 段无进料
 - 输入文件 `data/Datain0.dat` 按行解析；新增参数追加在末尾新行，缺失时用默认值（向后兼容）
@@ -120,3 +120,10 @@ TEXACO（德士古）水煤浆气化炉 Fortran 程序的 Python 移植版（1D 
 - `OUTLET_FLOWS_JSON` 按格号记录温度、FEMF×3600 的 kmol/h、WE×(1−X)×3600 的灰 kg/h。WE 为总固体流，X 为其中碳质量分数。不得用当前输入补算历史结果中的灰。
 - UI 压力为 MPaG、温度为℃，文件/API/核心原有压力仍为绝压 Pa、温度为K；目标温度字段自身保持℃。换算使用 `src/common/display_units.py`，参考大气压101325 Pa，Web 用 `info.display` 元数据双向转换。Streamlit 现有压力温度输入也同步转换。
 - Web 编辑前17行，反算解显示在结果中、不自动改写初值；Streamlit仍只编辑前11行并保留扩展。测试：`numeric_test/test_feed_design.py`；实际隔离验收：`numeric_test/check_feed_design.py`。
+
+## 求解性能与稳定性（2026-11-02）
+- 晋华炉默认使用 `scipy.linalg.solve_banded`（LAPACK），按方程行最大系数缩放后求解；仍是原牛顿方程，收敛判据不变。仅 DMAT 写回修正量，A/B/C 不被线性求解修改。
+- KMODEL=0 默认保留 BLKTRD 和固定差分，支持原 TEXACO 逐位对照。环境变量 `TEXACO_LINEAR_SOLVER=scipy|legacy` 可指定线性后端；legacy 仅切换线性求解，不关闭晋华炉自适应差分。
+- KMODEL=1 的 X 列差分步长为 `max(1e-12,min(1e-4,abs(X)*0.01))`；其余变量和 KMODEL=0 仍为 1e-4。避免微量残碳附近固定步长引起修正量振荡，不放宽任何 SKON 阈值。
+- ENTKOL 以 `(T,PWK)` 缓存完整十种组分焓和温度导数，缓存仅存活于一次 GASIFIER 组装。ENTFED 每次组装计算一次。局部物性更新包含本格和上游格；XMASS 的上游 ROS 必须有效，不能无条件将其他物性更新也裁成单格。
+- 结果输出仍全炉刷新派生量。基准脚本 `numeric_test/benchmark_solver.py` 在隔离目录保存状态/计时；`--linear-only` 比较同一实际雅可比的求解耗时及后向误差。细节见 `docs/SOLVER_PERFORMANCE.md`；回归见 `numeric_test/test_solver_performance.py`。

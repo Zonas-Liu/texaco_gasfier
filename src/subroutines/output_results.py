@@ -321,7 +321,7 @@ def write_start(outfile):
         outfile.write(f"\n警告: 无法写入START.DAT文件: {e}\n")
 
 
-def entkol():
+def entkol(cells=None, cache=None):
     """
     计算煤入口焓 - 初始化各格子各组分的焓值和温度导数
     
@@ -337,16 +337,22 @@ def entkol():
         DHDT是焓值对温度的差分近似
         气体编号: 1-O2, 2-CH4, 3-CO, 4-CO2, 5-H2S, 6-H2, 7-N2, 8-H2O, 9-C, 10-Ash
         单位: 气体焓 [J/kmol], 固体焓 [J/kg]
+        cells 可限制更新格子；cache 以 (T, PWK) 为键，由单次 GASIFIER 组装持有。
+        缓存含水和两种固体，保存副本，不能跨物性模型变更复用。
     """
     dht = np.zeros(15)  # 临时数组，用于计算温度导数
     
-    for i in range(common.NZEL1, common.NZEL2 + 1):
+    for i in (range(common.NZEL1, common.NZEL2 + 1) if cells is None else cells):
+        key = (common.T[i], common.PWK)
+        if cache is not None and key in cache:
+            common.HENTH[1:11, i], common.DHDT[1:11, i] = cache[key]
+            continue
         # 计算气体组分 (1-7) 的焓值和温度导数
         for j in range(1, 8):
             dht[j] = ENTHP(j, 'G', common.T[i] + 1.0, common.PWK)
             common.HENTH[j, i] = ENTHP(j, 'G', common.T[i], common.PWK)
             common.DHDT[j, i] = dht[j] - common.HENTH[j, i]
-        
+
         # 计算H2O (组分8) 的焓值
         j = 8
         if common.T[i] > 373.15:
@@ -364,6 +370,9 @@ def entkol():
             dht[j] = ENTHP(j, '', common.T[i] + 1.0, common.PWK)
             common.HENTH[j, i] = ENTHP(j, '', common.T[i], common.PWK)
             common.DHDT[j, i] = dht[j] - common.HENTH[j, i]
+
+        if cache is not None:
+            cache[key] = (common.HENTH[1:11, i].copy(), common.DHDT[1:11, i].copy())
 
 
 def entfed():

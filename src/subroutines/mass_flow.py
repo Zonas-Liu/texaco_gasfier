@@ -8,7 +8,7 @@ import numpy as np
 from common.common_data import common
 
 
-def xmass():
+def xmass(cells=None):
     """
     计算每个小格的质量流量
     XMASS - Calculate mass flow for each cell
@@ -22,6 +22,9 @@ def xmass():
     - 停留时间 TRZ(I)
     - 固体质量 XMS(I) 和 空隙率 EPS(I)
     """
+    # 局部组装传入按上游到下游排列的格子；其上游 ROS 须已刷新。
+    # 返回值是所选格子的合计。默认仍计算全炉（Fortran XMASS）。
+    cells = range(common.NZRA, common.NZRE + 1) if cells is None else tuple(cells)
     # 计算灰分在干燥无灰基中的比例
     # FASH = ELAS / (ELC + ELH + ELO + ELN + ELS)
     fash = common.ELAS / (common.ELC + common.ELH + common.ELO + common.ELN + common.ELS)
@@ -35,7 +38,7 @@ def xmass():
     
     # 循环计算每个格子 (NZRA to NZRE, Fortran 1-based index)
     # In Python: range(nzra, nzre+1) to include nzre
-    for i in range(common.NZRA, common.NZRE + 1):
+    for i in cells:
         # 气体密度 [kg/m^3]
         # ROG(I) = 353.5 / T(I)
         # Note: 353.5 = P0*M_air/(R*T0) for standard conditions
@@ -133,7 +136,7 @@ def xmass():
     # 计算每个格子的固体质量和空隙率
     sum_xms = 0.0
     
-    for i in range(common.NZRA, common.NZRE + 1):
+    for i in cells:
         # 格子内固体质量 [kg]
         # XMS(I) = WE(I) * TRZ(I)
         common.XMS[i] = common.WE[i] * common.TRZ[i]
