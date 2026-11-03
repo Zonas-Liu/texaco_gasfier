@@ -5,7 +5,7 @@ const path = require("node:path");
 const vm = require("node:vm");
 let plotted;
 const context = vm.createContext({
-  document: { addEventListener() {} },
+  document: { addEventListener() {}, getElementById() { return null; } },
   Plotly: { newPlot: (...args) => { plotted = args; } },
 });
 vm.runInContext(fs.readFileSync(path.join(__dirname, "../web/static/js/app.js"), "utf8"), context);
@@ -63,4 +63,57 @@ const displayed = [...plotted[1][0].y, ...plotted[1][1].y.slice(1)];
 const original = JSON.parse(run("JSON.stringify(profile.map(row=>row['T(C)']))"));
 assert.deepEqual(displayed, original);
 assert.equal(plotted[1][0].line.shape, "linear");
-console.log("Web presentation: numeric precision, missing data, units, CSV and all 60 chart points passed.");
+
+// 逐点读数与悬浮读数不得把微量值显示成零；对数轴显式断开非正值。
+assert.equal(run("chartNumber(0)"), "0.00");
+assert.equal(run("chartNumber(1.23e-12)"), "1.230e-12");
+assert.equal(run("chartNumber(-1.23e-12)"), "-1.230e-12");
+assert.equal(run("chartNumber(null)"), "—");
+run(`const convergence=[{Iter:1,SUMFE:12.123456789},{Iter:2,SUMFE:0},{Iter:3,SUMFE:-1e-12},{Iter:4,SUMFE:null},{Iter:5,SUMFE:2.3456789e-14}];
+const historyBefore=JSON.stringify(convergence);
+plotLine('log-test',convergence,['SUMFE'],'气体组分修正量 (kmol/s)',{x:'Iter',log:true});`);
+assert.deepEqual(Array.from(plotted[1][0].y), [12.123456789,null,null,null,2.3456789e-14]);
+assert.equal(plotted[1][0].customdata[4], "2.3456789e-14");
+assert.equal(plotted[1][0].connectgaps, false);
+assert.equal(plotted[1][0].line.simplify, false);
+assert.equal(plotted[2].yaxis.type, "log");
+assert.equal(run("JSON.stringify(convergence)===historyBefore"), true);
+
+// 组分颜色和线型跨图固定；非有限值以间断表示，不补零、不裁掉网格。
+run(`const chemistry=[{I:1,CO:30,H2:20,CO2:10,H2O:40},{I:2,CO:NaN,H2:21,CO2:9,H2O:40},{I:3,CO:31,H2:22,CO2:8,H2O:39}];
+plotLine('gas-test',chemistry,['CO','H2','CO2','H2O'],'体积分数 (%)');`);
+assert.deepEqual(Array.from(plotted[1][0].y), [30,null,31]);
+assert.equal(new Set(plotted[1].map((trace) => trace.line.dash)).size, 4);
+assert.equal(new Set(plotted[1].map((trace) => trace.line.color)).size, 4);
+const gasCoColor = plotted[1][0].line.color;
+run("plotBar('bar-test',{CO:40,H2:35,CO2:20,CH4:1,N2:3,H2S:1,O2:1.23456789e-15},'%',true)");
+assert.equal(plotted[1][0].marker.color[0], gasCoColor);
+assert.equal(plotted[1][0].x[6], 1.23456789e-15);
+assert.equal(plotted[1][0].customdata[6], "1.23456789e-15");
+assert.match(plotted[2].annotations[6].text, /e-15/);
+run("plotBar('missing-bar',{CO:0},'%',true)");
+assert.equal(plotted[1][0].x[0], 0);
+assert.equal(plotted[1][0].x[1], null);
+assert.equal(plotted[2].annotations[1].text, "—");
+
+// 实际四个收敛图分别传入各自单位，不把不同量纲曲线放在同一轴。
+const plotCalls = [];
+context.Plotly.newPlot = (...args) => { plotted = args; plotCalls.push(args); };
+run(`renderTable = () => {}; state.result={convergence_history:convergence}; renderTab('tab-history');`);
+assert.deepEqual(plotCalls.map((call) => call[0]), ['plot-history-main','plot-history-we','plot-history-x','plot-history-t']);
+assert.deepEqual(plotCalls.map((call) => call[2].annotations[0].text), ['kmol/s','kg/s','（无量纲）','K']);
+assert.ok(plotCalls.every((call) => call[1].length === 1));
+
+// 双出口干湿基切换仍使用原数组；仅新增图案，原值和物种顺序不变。
+context.document.querySelectorAll = () => [];
+context.document.getElementById = (id) => id === 'composition-basis-note' ? {} : null;
+run(`const outlets=[sample,{...sample,key:'rsc',label:'辐射废锅出口'}]; const outletsBefore=JSON.stringify(outlets);
+state.outletBasis='dry'; renderOutletChart(outlets);`);
+assert.equal(plotted[1][0].x.length, 7);
+assert.equal(plotted[1][1].marker.pattern.fillmode, 'overlay');
+assert.equal(plotted[1][1].marker.pattern.shape, '/');
+run("state.outletBasis='wet'; renderOutletChart(outlets)");
+assert.equal(plotted[1][0].x.length, 8);
+assert.equal(plotted[1][0].x[7], 20);
+assert.equal(run("JSON.stringify(outlets)===outletsBefore"), true);
+console.log("Web presentation: precision, units, CSV, 60 raw grid points, log gaps, chart colors and outlet basis passed.");

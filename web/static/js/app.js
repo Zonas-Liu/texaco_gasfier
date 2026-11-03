@@ -25,8 +25,10 @@ const GAS_LABELS = {
   H2O: "H₂O",
 };
 // 颜色具有固定语义：热端琥珀色，RSC冷蓝，物种颜色跨图表一致。
-const COLORS = ["#204f9c", "#c16b22", "#5a8cbb", "#8b6d9d", "#8492a6", "#9a7a55", "#607f6d", "#658e9a"];
-const GAS_COLORS = { CO:"#204f9c", H2:"#5a8cbb", CO2:"#a2b7d1", CH4:"#c16b22", H2S:"#8b6d9d", N2:"#8492a6", O2:"#607f6d", H2O:"#658e9a" };
+const CHART = { ink:"#24334a", muted:"#526780", grid:"#e3eaf2", hot:"#b56320", cool:"#306daf", blue:"#245ca6", teal:"#137f78", slate:"#63748b", purple:"#805b98" };
+const COLORS = [CHART.blue, CHART.teal, CHART.slate, CHART.purple, CHART.hot, "#a94f6a", "#687b37", "#526875"];
+const GAS_COLORS = { CO:CHART.blue, H2:CHART.teal, CO2:CHART.slate, CH4:CHART.hot, H2S:"#a94f6a", N2:"#526875", O2:"#687b37", H2O:CHART.purple };
+const GAS_DASHES = { CO:"solid", H2:"dash", CO2:"dot", H2O:"dashdot", CH4:"solid", N2:"dash", H2S:"dot", O2:"dashdot" };
 const $ = (id) => document.getElementById(id);
 const state = {
   info: {},
@@ -515,7 +517,7 @@ function showSummary(r) {
       r.feed_design.overall_success ? "success" : "error");
   renderFeedDesign(r.feed_design);
   $("heat-panel").hidden = !isRsc;
-  $("zone-legend").hidden = !isRsc;
+  $("zone-legend").hidden = true; // 分区图例统一在图表上方呈现。
   renderDesign(r.rsc_design);
   const wall = heat.steam_wall_tph, rsc = heat.steam_rsc_tph;
   $("heat-metrics").innerHTML = isRsc ?
@@ -524,7 +526,7 @@ function showSummary(r) {
      <div class="heat-row pressure"><span>汽包压力</span><strong>${fmt(finite(heat.drum_pressure_mpa) ? heat.drum_pressure_mpa - 0.101325 : null, 3)}<small>MPaG</small></strong></div>` : "";
   const sum = finite(wall) && finite(rsc) ? wall + rsc : null;
   $("heat-allocation").innerHTML = finite(sum) && sum > 0 && wall >= 0 && rsc >= 0 ?
-    `<div class="heat-allocation-label"><span>产汽分配</span><strong>废锅占比 ${fmt(rsc / sum * 100, 1)}%</strong></div><div class="heat-allocation-bar" aria-label="水冷壁与废锅产汽占比"><span style="width:${wall / sum * 100}%"></span><span style="width:${rsc / sum * 100}%"></span></div>` : "";
+    `<div class="heat-allocation-label"><span>产汽分配</span><strong>合计 ${fmt(sum, 2)} t/h</strong></div><div class="heat-allocation-bar" role="img" aria-label="水冷壁产汽占${fmt(wall / sum * 100, 1)}%，废锅产汽占${fmt(rsc / sum * 100, 1)}%"><span style="width:${wall / sum * 100}%"></span><span style="width:${rsc / sum * 100}%"></span></div><div class="heat-share-legend"><span><i aria-hidden="true"></i>水冷壁 <b>${fmt(wall / sum * 100, 1)}%</b></span><span><i aria-hidden="true"></i>辐射废锅 <b>${fmt(rsc / sum * 100, 1)}%</b></span></div>` : "";
 }
 // 工艺示意只绑定本次结果，绝不借用用户正在编辑的参数填补旧输出。
 function renderProcess(r, isRsc) {
@@ -568,208 +570,161 @@ function activateTab(id) {
 }
 
 const PLOT_CONFIG = {
-  responsive: true,
-  displaylogo: false,
-  displayModeBar: false,
-  scrollZoom: false,
+  responsive: true, displaylogo: false, displayModeBar: false, scrollZoom: false,
 };
-function layout(yTitle, xTitle = "格子号") {
-  return {
-    font: {
-      family: "Bahnschrift, Microsoft YaHei UI, Microsoft YaHei, sans-serif",
-      size: 12,
-      color: "#60718a",
-    },
-    paper_bgcolor: "#ffffff",
-    plot_bgcolor: "#ffffff",
-    margin: { l: 64, r: 22, t: 28, b: 52 },
-    xaxis: {
-      title: { text: xTitle, font: { size: 12 } },
-      showgrid: false,
-      showline: true,
-      linecolor: "#d6e0ea",
-      ticks: "outside",
-      tickcolor: "#d6e0ea",
-      ticklen: 4,
-      nticks: 7,
-      zeroline: false,
-      automargin: true,
-      tickfont: { size: 11 },
-      showspikes: true,
-      spikemode: "across",
-      spikesnap: "cursor",
-      spikethickness: 1,
-      spikecolor: "#a2b7d1",
-    },
-    yaxis: {
-      title: { text: yTitle, font: { size: 12 }, standoff: 12 },
-      gridcolor: "#e8edf4",
-      nticks: 5,
-      zeroline: false,
-      automargin: true,
-      tickfont: { size: 11 },
-      separatethousands: true,
-    },
-    legend: {
-      orientation: "h",
-      x: 0,
-      y: -0.24,
-      yanchor: "top",
-      font: { size: 12 },
-      traceorder: "normal",
-      itemsizing: "constant",
-    },
-    hovermode: "x unified",
-    hoverlabel: { bgcolor: "#24334a", font: { color: "#fff", size: 12 } },
-    showlegend: false,
-  };
+// 图形、悬浮读数和键盘读数共用显示规则；原始值始终保留。
+function chartNumber(value, digits = 2) {
+  if (!finite(value)) return "—";
+  if (value !== 0 && (Math.abs(value) < .01 || Math.abs(value) >= 1e7)) return value.toExponential(3);
+  return fmt(value, digits);
+}
+function seriesLabel(key) {
+  return ({SUMFE:"气体组分", SUMWE:"固体流", SUMX:"碳分数", SUMT:"温度"})[key]
+    || GAS_LABELS[key] || OUTPUT_LABELS[key]?.replace(/\s*\([^)]*\)/g, "") || key;
 }
 function seriesUnit(key, title) {
-  return ({SUMFE: "kmol/s", SUMWE: "kg/s", SUMX: "（无量纲）", SUMT: "K"})[key]
+  return ({SUMFE:"kmol/s", SUMWE:"kg/s", SUMX:"（无量纲）", SUMT:"K"})[key]
     ?? title.match(/\(([^)]+)\)/)?.[1] ?? "";
 }
-function plotLine(id, rows, keys, yTitle, options = {}) {
-  if (!rows.length) return;
-  const traces = keys.map((key, i) => ({
-    x: rows.map((r) => r[options.x || "I"]),
-    y: rows.map((r) => r[key]),
-    name: ({SUMFE:'气体组分',SUMWE:'固体流',SUMX:'碳分数',SUMT:'温度'})[key] || GAS_LABELS[key] || OUTPUT_LABELS[key] || key,
-    mode: "lines",
-    connectgaps: false,
-    line: {
-      width: 2.4,
-      shape: "linear",
-      color: options.color || GAS_COLORS[key] || COLORS[i],
-      dash: options.log && i > 0 ? ["solid", "dot", "dash"][i] : "solid",
+function layout(yTitle, xTitle = "格子号") {
+  return {
+    font: {family:"Bahnschrift, Microsoft YaHei UI, Microsoft YaHei, sans-serif", size:12, color:CHART.muted},
+    paper_bgcolor:"#ffffff", plot_bgcolor:"#fbfcfe",
+    margin:{l:54, r:18, t:28, b:48},
+    xaxis: {
+      title:{text:xTitle, font:{size:12}, standoff:12},
+      showgrid:false, showline:true, linecolor:CHART.grid,
+      ticks:"outside", tickcolor:CHART.grid, ticklen:5, nticks:6,
+      zeroline:false, automargin:true, tickfont:{size:12},
+      showspikes:true, spikemode:"across", spikesnap:"data", spikethickness:1, spikecolor:"#849bb5",
     },
-    hovertemplate: `%{y:${options.log ? ".3e" : ",.4~g"}} ${escapeHtml(seriesUnit(key, yTitle))}<extra>%{fullData.name}</extra>`,
+    yaxis: {
+      title:{text:""}, gridcolor:CHART.grid, nticks:5,
+      zeroline:false, automargin:true, tickfont:{size:12}, separatethousands:true,
+    },
+    annotations:yTitle ? [{text:yTitle, x:0, xref:"paper", xanchor:"left", y:1.06, yref:"paper", yanchor:"bottom", showarrow:false, font:{size:11, color:CHART.muted}}] : [],
+    hovermode:"x unified", hoverdistance:35,
+    hoverlabel:{bgcolor:"#ffffff", bordercolor:"#b8c9dc", font:{color:CHART.ink, size:12}, namelength:-1, align:"left"},
+    showlegend:false, dragmode:"zoom", transition:{duration:0},
+  };
+}
+function resetChart(plot) {
+  Plotly.relayout(plot, {"xaxis.autorange":true, "yaxis.autorange":true});
+}
+// 原生控件放在绘图区外，图例可通过键盘切换，读数不依赖鼠标悬停。
+function chartChrome(id, meta) {
+  const host = $(id);
+  if (!host) return;
+  document.querySelectorAll(`[data-chart-owner="${id}"]`).forEach((node) => node.remove());
+  host.setAttribute("role", "img");
+  host.setAttribute("aria-label", `${meta.title}。${meta.summaryText}。逐点数据见图下方读数。`);
+  const top = document.createElement("div");
+  top.dataset.chartOwner = id;
+  top.className = "chart-meta";
+  top.innerHTML = `<div class="chart-summary">${meta.summary}</div><div class="chart-legend" aria-label="${escapeHtml(meta.title)}图例">${(meta.legend || []).map((item, index) => {
+    const tag = item.indices ? 'button' : 'span';
+    const dash = item.dash === 'dot' ? 'dotted' : item.dash && item.dash !== 'solid' ? 'dashed' : 'solid';
+    return `<${tag} class="chart-key" ${item.indices ? `type="button" data-series="${index}" aria-pressed="true" aria-label="显示${escapeHtml(item.name)}"` : ''}><i class="${item.bar ? `bar-key${item.pattern ? ' patterned' : ''}` : ''}" aria-hidden="true" style="--series-color:${item.color};--series-dash:${dash}"></i>${escapeHtml(item.name)}</${tag}>`;
+  }).join('')}</div>`;
+  host.before(top);
+  top.querySelectorAll('[data-series]').forEach((button) => button.addEventListener('click', () => {
+    const active = button.getAttribute('aria-pressed') !== 'true';
+    button.setAttribute('aria-pressed', String(active));
+    Plotly.restyle(host, {visible:active ? true : 'legendonly'}, meta.legend[Number(button.dataset.series)].indices);
   }));
-  const spec = layout(yTitle, options.x === "Iter" ? "迭代次数" : "格子号");
-  spec.showlegend = keys.length > 1;
-  spec.xaxis.hoverformat = ".0f";
-  if (keys.length > 1 || options.legendSpace) spec.margin.b = 90;
-  if (options.log) {
-    spec.yaxis.type = "log";
-    spec.yaxis.exponentformat = "power";
-    spec.yaxis.showexponent = "all";
-  } else if (keys[0] === "T(C)") spec.yaxis.tickformat = ",.0f";
-  if (options.zones && rows.length > 30) {
-    // 分段着色沿用原网格数值，交界点共用以保持曲线连续。
-    const hot = rows.filter((r) => r.I <= 30), cool = rows.filter((r) => r.I >= 30);
-    traces[0].x = hot.map((r) => r.I);
-    traces[0].y = hot.map((r) => r[keys[0]]);
-    traces[0].name = "燃烧室";
-    traces.push({ ...traces[0], x: cool.map((r) => r.I), y: cool.map((r) => r[keys[0]]),
-      name: "辐射废锅", line: { ...traces[0].line, color: "#5a8cbb" } });
-    spec.shapes = [
-      {
-        type: "rect",
-        x0: 30,
-        x1: rows.at(-1).I,
-        y0: 0,
-        y1: 1,
-        yref: "paper",
-        fillcolor: "rgba(90,140,187,0.06)",
-        line: { width: 0 },
-        layer: "below",
-      },
-      {
-        type: "line",
-        x0: 30,
-        x1: 30,
-        y0: 0,
-        y1: 1,
-        yref: "paper",
-        line: { color: "#9db6cd", width: 1.2, dash: "dot" },
-      },
-    ];
-    spec.annotations = [
-      {
-        x: 30,
-        y: 1,
-        yref: "paper",
-        text: "燃烧室出口",
-        showarrow: false,
-        xanchor: "right",
-        yshift: 8,
-        font: { size: 11, color: "#204f9c" },
-      },
-    ];
-    const exits = [rows.find((r) => r.I === 30), rows.at(-1)].filter(Boolean);
-    traces.push({
-      x: exits.map((r) => r.I),
-      y: exits.map((r) => r[keys[0]]),
-      type: "scatter",
-      mode: "markers",
-      showlegend: false,
-      hoverinfo: "skip",
-      marker: {
-        size: 8,
-        color: ["#c16b22", "#5a8cbb"],
-        line: { color: "#fff", width: 2 },
-      },
-    });
-    exits.forEach((r, i) =>
-      spec.annotations.push({
-        x: r.I,
-        y: r[keys[0]],
-        text: `${fmt(r[keys[0]], 1)} ℃`,
-        showarrow: true,
-        arrowhead: 0,
-        arrowcolor: "#aebdc5",
-        ax: i === 0 ? 0 : -52,
-        ay: i === 0 ? -36 : -28,
-        bgcolor: "#fff",
-        borderpad: 3,
-        font: { size: 12, color: i === 0 ? "#a55719" : "#204f9c" },
-      }),
-    );
+  const foot = document.createElement("div");
+  foot.dataset.chartOwner = id;
+  foot.className = "chart-footer";
+  foot.innerHTML = `<details class="chart-reader"><summary>逐点读数</summary><div class="chart-reader-body"><label for="${id}-point">${escapeHtml(meta.pointLabel)}</label><select id="${id}-point">${meta.points.map((p, i) => `<option value="${i}">${escapeHtml(p.label)}</option>`).join('')}</select><dl aria-live="polite" aria-atomic="true"></dl></div></details><span class="chart-method">${escapeHtml(meta.note)}</span><button type="button" class="chart-reset" aria-label="恢复${escapeHtml(meta.title)}坐标范围">恢复</button>`;
+  host.after(foot);
+  const select = foot.querySelector('select'), output = foot.querySelector('dl');
+  function updateReading() {
+    const point = meta.points[Number(select.value)];
+    output.innerHTML = point ? point.values.map((v) => `<div><dt>${escapeHtml(v.name)}</dt><dd title="原始值 ${escapeHtml(finite(v.value) ? v.value : '未记录')}">${escapeHtml(chartNumber(v.value, 4))}<small>${escapeHtml(v.unit)}</small></dd></div>`).join('') : '<div><dt>读数</dt><dd>未记录</dd></div>';
   }
+  select.disabled = !meta.points.length;
+  select.value = String(Math.max(0, meta.points.length - 1));
+  updateReading();
+  select.addEventListener('change', updateReading);
+  foot.querySelector('button').addEventListener('click', () => resetChart(host));
+}
+function plotLine(id, rows, keys, yTitle, options = {}) {
+  const xKey = options.x || 'I', isHistory = xKey === 'Iter';
+  const unit = seriesUnit(keys[0], yTitle);
+  const traces = keys.map((key, i) => ({
+    type:'scatter', x:rows.map((r) => r[xKey]),
+    // 对数轴不能绘制0或负值，明确断开；逐点读数和原始表仍保留原值。
+    y:rows.map((r) => finite(r[key]) && (!options.log || r[key] > 0) ? r[key] : null),
+    customdata:rows.map((r) => finite(r[key]) ? String(r[key]) : '未记录'),
+    name:seriesLabel(key), mode:'lines+markers', connectgaps:false,
+    line:{width:2.6, shape:'linear', simplify:false, color:options.color || GAS_COLORS[key] || COLORS[i], dash:GAS_DASHES[key] || 'solid'},
+    marker:{size:rows.map((_, index) => index === rows.length - 1 ? 6 : 0)},
+    hovertemplate:`%{customdata} ${escapeHtml(seriesUnit(key, yTitle))}<extra>%{fullData.name}</extra>`,
+  }));
+  const spec = layout(unit, isHistory ? '迭代次数' : '格子号');
+  spec.xaxis.hoverformat = '.0f';
+  if (options.log) {
+    spec.yaxis.type = 'log'; spec.yaxis.exponentformat = 'power'; spec.yaxis.showexponent = 'all';
+  } else {
+    spec.yaxis.rangemode = 'tozero';
+    if (keys[0] === 'T(C)') { spec.yaxis.rangemode = 'normal'; spec.yaxis.tickformat = ',.0f'; }
+  }
+  const legend = keys.length > 1 ? traces.map((t, i) => ({name:t.name, color:t.line.color, dash:t.line.dash, indices:[i]})) : [];
+  if (options.zones && rows.some((r) => r.I > 30)) {
+    // 分段着色沿用原网格数值，交界点共用；缺失点不补值、不插值。
+    const hot = rows.filter((r) => r.I <= 30), cool = rows.filter((r) => r.I >= 30);
+    const section = (data, name, color) => ({...traces[0], x:data.map((r) => r.I),
+      y:data.map((r) => finite(r[keys[0]]) ? r[keys[0]] : null),
+      customdata:data.map((r) => finite(r[keys[0]]) ? String(r[keys[0]]) : '未记录'),
+      name, line:{...traces[0].line, color}, marker:{size:data.map((_, i) => i === data.length - 1 ? 7 : 0), color},
+    });
+    traces[0] = section(hot, '燃烧室', CHART.hot);
+    traces.push(section(cool, '辐射废锅', CHART.cool));
+    legend.push({name:'燃烧室', color:CHART.hot}, {name:'辐射废锅', color:CHART.cool});
+    spec.shapes = [
+      {type:'rect', x0:30, x1:rows.at(-1).I, y0:0, y1:1, yref:'paper', fillcolor:'rgba(48,109,175,.045)', line:{width:0}, layer:'below'},
+      {type:'line', x0:30, x1:30, y0:0, y1:1, yref:'paper', line:{color:'#91a9c4', width:1, dash:'dot'}},
+    ];
+    spec.annotations.push({x:30, y:1.06, yref:'paper', xanchor:'center', yanchor:'bottom', text:'30格 · 燃烧室出口', showarrow:false, font:{size:10, color:CHART.muted}});
+  }
+  const last = rows.at(-1)?.[keys[0]], lead = isHistory ? '末次' : options.zones && rows.some((r) => r.I > 30) ? '废锅出口' : '出口';
+  const summaryText = keys.length === 1 ? `${lead} ${chartNumber(last)} ${unit}` : `${keys.length} 种组分 · 湿基体积分数`;
+  const summary = keys.length === 1 ? `<span>${lead}</span><strong>${escapeHtml(chartNumber(last))}</strong><small>${escapeHtml(unit)}</small>` : `<span>${escapeHtml(summaryText)}</span>`;
+  if (!rows.length) spec.annotations.push({text:'暂无数据', x:.5, y:.5, xref:'paper', yref:'paper', showarrow:false});
   Plotly.newPlot(id, traces, spec, PLOT_CONFIG);
+  chartChrome(id, {
+    title:yTitle, summaryText, summary, legend,
+    pointLabel:isHistory ? '迭代轮次' : '格子号',
+    note:options.log ? '对数轴 · 非正值不绘制' : `${rows.length} 格 · 原始网格`,
+    points:rows.map((r) => ({label:`第 ${r[xKey]} ${isHistory ? '次' : '格'}`, values:keys.map((key) => ({name:seriesLabel(key), value:r[key], unit:seriesUnit(key,yTitle)}))})),
+  });
 }
 function plotBar(id, data, unit, horizontal = false, maximum = null) {
-  let keys = Object.keys(data);
-  if (horizontal)
-    keys = ["CO", "H2", "CO2", "CH4", "N2", "H2S", "O2"].filter((k) =>
-      finite(data[k]),
-    );
-  const values = keys.map((k) => data[k]);
+  const keys = horizontal ? ['CO','H2','CO2','CH4','N2','H2S','O2'] : Object.keys(data);
+  const values = keys.map((k) => finite(data[k]) ? data[k] : null);
+  const labels = keys.map((k) => GAS_LABELS[k] || k);
   const trace = {
-    type: "bar",
-    x: horizontal ? values : keys.map((k) => GAS_LABELS[k] || k),
-    y: horizontal ? keys.map((k) => GAS_LABELS[k] || k) : values,
-    orientation: horizontal ? "h" : "v",
-    marker: { color: keys.map((k) => GAS_COLORS[k] || COLORS[0]) },
-    customdata: values.map((v) => finite(v) ? v.toPrecision(5) : "—"),
-    text: horizontal ? [] : values.map((v) => fmt(v, 2)),
-    textposition: "outside",
-    cliponaxis: false,
-    hovertemplate: `%{customdata} ${unit}<extra></extra>`,
+    type:'bar', x:horizontal ? values : labels, y:horizontal ? labels : values,
+    orientation:horizontal ? 'h' : 'v',
+    marker:{color:keys.map((k) => GAS_COLORS[k] || COLORS[0])},
+    customdata:keys.map((k) => finite(data[k]) ? String(data[k]) : '未记录'),
+    hovertemplate:`%{customdata} ${escapeHtml(unit)}<extra></extra>`,
   };
-  const spec = layout(
-    horizontal ? "" : unit,
-    horizontal ? `体积分数 (${unit})` : "组分",
-  );
-  spec.margin = { l: 42, r: 88, t: 18, b: 44 };
-  spec.bargap = 0.52;
-  spec.hovermode = "closest";
+  const spec = layout(horizontal ? '' : unit, horizontal ? `体积分数 / ${unit}` : '组分');
+  spec.margin = {l:40, r:96, t:10, b:46}; spec.bargap = .55; spec.hovermode = 'closest';
   if (horizontal) {
-    spec.yaxis.autorange = "reversed";
-    spec.yaxis.tickmode = "array";
-    spec.yaxis.tickvals = keys.map((k) => GAS_LABELS[k] || k);
-    spec.xaxis.range = [0, maximum || Math.ceil(Math.max(...values, 1) / 10) * 10];
-    spec.xaxis.tickformat = ".0f";
-    spec.yaxis.showgrid = false;
-    spec.annotations = keys.map((k, i) => ({
-      x: 1.03, xref: "paper", xanchor: "left", y: GAS_LABELS[k] || k,
-      text: `${values[i] !== 0 && Math.abs(values[i]) < .01 ? values[i].toExponential(1) : fmt(values[i], 2)}${unit}`,
-      showarrow: false, font: { size: 12, color: "#24334a" },
-    }));
-  } else {
-    spec.yaxis.range = [0, Math.max(...values, 1) * 1.22];
-    spec.xaxis.showgrid = false;
-  }
+    spec.yaxis = {...spec.yaxis, autorange:'reversed', categoryorder:'array', categoryarray:labels, showgrid:false};
+    spec.xaxis = {...spec.xaxis, showgrid:true, gridcolor:CHART.grid, range:[0, maximum || Math.ceil(Math.max(...values.filter(finite),1)/10)*10], tickformat:'.0f', showspikes:false};
+    spec.annotations = keys.map((k, i) => ({x:1.04, xref:'paper', xanchor:'left', y:labels[i], text:`${chartNumber(values[i])}${finite(values[i]) ? unit : ''}`, showarrow:false, font:{size:12, color:CHART.ink}}));
+  } else spec.yaxis.rangemode = 'tozero';
   Plotly.newPlot(id, [trace], spec, PLOT_CONFIG);
+  const effective = finite(data.CO) && finite(data.H2) ? data.CO + data.H2 : null;
+  const summaryText = `CO＋H₂ ${chartNumber(effective)}%`;
+  chartChrome(id, {title:'最终出口干基组成', summaryText,
+    summary:`<span>CO＋H₂</span><strong>${chartNumber(effective)}</strong><small>%</small>`,
+    pointLabel:'气体组分', note:'干基 · 真实比例',
+    points:keys.map((k) => ({label:GAS_LABELS[k] || k, values:[{name:'干基体积分数', value:data[k], unit}]})),
+  });
 }
 // 仅格式化展示：微量非零数保留科学计数，title保留输出原值。
 function numberCell(value, digits = 3) {
@@ -858,25 +813,30 @@ function renderOutletMatrix(sections) {
 }
 function renderOutletChart(sections) {
   const basis = state.outletBasis, keys = OUTLET_SPECIES.filter((g) => basis === 'wet' || g !== 'H2O');
+  const labels = keys.map((g) => GAS_LABELS[g]);
   const traces = sections.map((s) => ({
     type:'bar', orientation:'h', name:s.label,
-    x:keys.map((g) => finite(s[`${basis}_composition`]?.[g]) ? s[`${basis}_composition`][g] : null),
-    y:keys.map((g) => GAS_LABELS[g]),
-    marker:{color:s.key === 'rsc' ? '#5a8cbb' : '#c16b22'},
-    customdata:keys.map((g) => finite(s[`${basis}_composition`]?.[g]) ? s[`${basis}_composition`][g].toPrecision(5) : '未记录'),
-    hovertemplate:'%{y}　%{customdata}%<extra>%{fullData.name}</extra>',
+    x:keys.map((g) => finite(s[`${basis}_composition`]?.[g]) ? s[`${basis}_composition`][g] : null), y:labels,
+    marker:{color:s.key === 'rsc' ? CHART.cool : CHART.hot, pattern:{shape:s.key === 'rsc' ? '/' : '', fillmode:'overlay', fgcolor:'#ffffff', fgopacity:.45, solidity:.15, size:7}},
+    customdata:keys.map((g) => finite(s[`${basis}_composition`]?.[g]) ? String(s[`${basis}_composition`][g]) : '未记录'),
+    hovertemplate:'%{customdata}%<extra>%{fullData.name}</extra>',
   }));
   const spec = layout('', '体积分数 / %');
-  spec.margin = {l:40,r:16,t:12,b:72};
-  spec.barmode = 'group'; spec.bargap = .32; spec.bargroupgap = .14;
-  spec.showlegend = sections.length > 1;
-  spec.legend = {...spec.legend,y:-.2,font:{size:11}};
+  spec.margin = {l:40,r:16,t:10,b:46};
+  spec.barmode = 'group'; spec.bargap = .35; spec.bargroupgap = .12;
   spec.hovermode = 'y unified';
-  spec.xaxis = {...spec.xaxis,showgrid:true,gridcolor:'#e8edf4',showspikes:false,rangemode:'tozero',tickformat:'.0f'};
-  spec.yaxis = {...spec.yaxis,autorange:'reversed',showgrid:false,tickmode:'array',tickvals:keys.map((g) => GAS_LABELS[g])};
+  spec.xaxis = {...spec.xaxis,showgrid:true,gridcolor:CHART.grid,showspikes:false,rangemode:'tozero',tickformat:'.0f'};
+  spec.yaxis = {...spec.yaxis,autorange:'reversed',showgrid:false,categoryorder:'array',categoryarray:labels,tickmode:'array',tickvals:labels};
   Plotly.newPlot('plot-outlet-comparison',traces,spec,PLOT_CONFIG);
+  chartChrome('plot-outlet-comparison', {
+    title:'出口组成对比', summaryText:`${basis === 'dry' ? '干基' : '湿基'}，${keys.length} 种气体`,
+    summary:`<span>${keys.length} 种气体 · ${basis === 'dry' ? '干基' : '湿基'}</span>`,
+    legend:sections.map((s) => ({name:s.label,color:s.key === 'rsc' ? CHART.cool : CHART.hot,bar:true,pattern:s.key === 'rsc'})),
+    pointLabel:'气体组分', note:'同一组分轴 · 真实比例',
+    points:keys.map((g) => ({label:GAS_LABELS[g], values:sections.map((s) => ({name:s.label, value:s[`${basis}_composition`]?.[g], unit:'%'}))})),
+  });
   document.querySelectorAll('[data-outlet-basis]').forEach((button) => button.setAttribute('aria-pressed',String(button.dataset.outletBasis === basis)));
-  $('composition-basis-note').textContent = basis === 'dry' ? '干基扣除水蒸气；小组分保留真实比例。' : '湿基包含水蒸气；与下方湿基列一一对应。';
+  $('composition-basis-note').textContent = basis === 'dry' ? '干基扣除水蒸气；微量组分可在逐点读数中核对。' : '湿基包含水蒸气；与下方湿基列一一对应。';
 }
 function renderOutlets(sections) {
   const host = $('outlet-comparison');
@@ -942,7 +902,7 @@ function renderTab(id) {
     heat = r.heat_recovery || {};
   if (id === "tab-overview") {
     plotLine("plot-overview-temp", internal, ["T(C)"], "温度 (°C)", {
-      color: "#c16b22",
+      color: CHART.hot,
       zones: Object.keys(heat).length > 0,
     });
     plotBar("plot-overview-gas", r.outlet_sections?.at(-1)?.dry_composition || r.syngas_composition || {}, "%", true);
@@ -951,15 +911,17 @@ function renderTab(id) {
     plotLine(
       "plot-history-main",
       hist,
-      ["SUMFE", "SUMWE", "SUMX"],
-      "修正量（对数）",
+      ["SUMFE"],
+      "气体组分修正量 (kmol/s)",
       { x: "Iter", log: true },
     );
+    plotLine("plot-history-we", hist, ["SUMWE"], "固体流修正量 (kg/s)", {x:"Iter", log:true, color:CHART.teal});
+    plotLine("plot-history-x", hist, ["SUMX"], "碳分数修正量", {x:"Iter", log:true, color:CHART.purple});
     plotLine("plot-history-t", hist, ["SUMT"], "温度修正量 (K)", {
       x: "Iter",
       log: true,
       legendSpace: true,
-      color: "#c16b22",
+      color: CHART.hot,
     });
     renderTable(
       "history-table",
@@ -976,12 +938,12 @@ function renderTab(id) {
   if (id === "tab-syngas") renderOutlets(r.outlet_sections || []);
   if (id === "tab-profile") {
     plotLine("plot-temp", internal, ["T(C)"], "温度 (°C)", {
-      color: "#c16b22",
+      color: CHART.hot,
       zones: Object.keys(heat).length > 0,
     });
     plotLine("plot-x", internal, ["X(%)"], "碳转化指标 (%)");
-    plotLine("plot-we", internal, ["WE(kg/s)"], "总固体流 (kg/s)");
-    plotLine("plot-u0", internal, ["U0(m/s)"], "气速 (m/s)");
+    plotLine("plot-we", internal, ["WE(kg/s)"], "总固体流 (kg/s)", {color:CHART.teal});
+    plotLine("plot-u0", internal, ["U0(m/s)"], "气速 (m/s)", {color:CHART.purple});
     renderTable(
       "internal-table",
       ["I", "H(m)", "U0(m/s)", "ResidenceTime(s)", "WE(kg/s)", "T(C)", "X(%)"],

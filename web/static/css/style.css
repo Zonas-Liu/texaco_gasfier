@@ -8,8 +8,8 @@
   --primary:#204f9c;
   --primary-dark:#153c7b;
   --tint:#eaf0fa;
-  --hot:#c16b22;
-  --cool:#5a8cbb;
+  --hot:#b56320;
+  --cool:#306daf;
   --danger:#b13f3f;
   --sidebar:328px;
   --header:72px;
@@ -1651,4 +1651,66 @@ tbody tr:last-child td,tbody tr:last-child th { border-bottom:0; }
     transition:none !important;
     scroll-behavior:auto !important;
   }
+}
+
+/* UI UX Pro Max：绘图区、语义图例和可访问读数使用统一结构。 */
+.chart-meta { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:4px 16px; min-height:44px; margin:12px 0 4px; }
+.chart-summary { display:flex; align-items:baseline; gap:7px; min-width:0; }
+.chart-summary > span { font-size:12px; color:var(--muted); }
+.chart-summary strong { font:400 23px/1.35 var(--number-font); color:var(--text); letter-spacing:-.3px; }
+.chart-summary small { font-size:11px; color:var(--muted); }
+.chart-legend { display:flex; flex-wrap:wrap; gap:0 12px; align-items:center; }
+.chart-key { display:inline-flex; align-items:center; gap:7px; min-height:36px; padding:4px 0; font:12px var(--body-font); color:var(--text); background:none; border:0; border-radius:3px; }
+button.chart-key { min-height:44px; padding:4px 6px; }
+.chart-key i { width:20px; border-top:2.5px var(--series-dash,solid) var(--series-color); }
+.chart-key i.bar-key { height:8px; border:0; border-radius:1px; background:var(--series-color); }
+.chart-key i.patterned { background:repeating-linear-gradient(135deg,transparent 0 4px,#ffffff70 4px 5px),var(--series-color); }
+button.chart-key:hover { background:#edf3fa; }
+.chart-key[aria-pressed="false"] { color:#65738a; text-decoration:line-through; }
+.chart-key[aria-pressed="false"] i { opacity:.35; }
+.chart-footer { display:grid; grid-template-columns:auto 1fr auto; align-items:start; column-gap:12px; border-top:1px solid #e3eaf2; margin-top:8px; padding-top:3px; color:var(--muted); font-size:11px; }
+.chart-reader { display:contents; }
+.chart-reader summary { grid-column:1; grid-row:1; min-height:40px; display:flex; align-items:center; gap:7px; color:var(--primary); list-style:none; border-radius:3px; font-size:12px; }
+.chart-reader summary::-webkit-details-marker { display:none; }
+.chart-reader summary:before { content:""; width:5px; height:5px; border-right:1.5px solid currentColor; border-bottom:1.5px solid currentColor; transform:rotate(-45deg); }
+.chart-reader[open] summary:before { transform:rotate(45deg); }
+.chart-reader-body { grid-column:1/-1; grid-row:2; display:grid; grid-template-columns:auto minmax(100px,1fr); align-items:center; gap:8px 12px; padding:12px; margin:0 0 8px; background:#f3f7fb; border-radius:6px; }
+.chart-reader:not([open]) .chart-reader-body { display:none; }
+.chart-reader-body label { font-size:12px; color:var(--text); }
+.chart-reader-body select { min-height:40px; min-width:0; max-width:100%; border:1px solid #bdcddd; border-radius:4px; color:var(--text); padding:4px 8px; background:white; }
+.chart-reader-body dl { grid-column:1/-1; margin:2px 0 0; }
+.chart-reader-body dl > div { display:flex; justify-content:space-between; align-items:baseline; gap:12px; padding:6px 0; }
+.chart-reader-body dt { font-size:12px; color:var(--text); }
+.chart-reader-body dd { margin:0; font:14px var(--number-font); color:var(--text); overflow-wrap:anywhere; text-align:right; }
+.chart-reader-body dd small { margin-left:6px; font:11px var(--body-font); color:var(--muted); }
+.chart-method { grid-column:2; grid-row:1; justify-self:end; align-self:center; font-size:11px; text-align:right; }
+.chart-reset { grid-column:3; grid-row:1; min-width:40px; min-height:40px; padding:4px 0; background:none; border:0; color:var(--primary); font-size:12px; border-radius:3px; }
+.chart-reset:hover { background:var(--tint); }
+.plot { height:290px; }
+.thermal-section .plot { height:270px; }
+.gas-panel .plot { height:280px; }
+.composition-comparison .comparison-plot { height:350px; }
+.composition-comparison .chart-meta { align-items:flex-start; }
+.composition-comparison .chart-summary { align-self:center; }
+.chart-note { line-height:1.8; }
+.heat-share-legend { display:flex; justify-content:space-between; flex-wrap:wrap; gap:8px 16px; margin-top:12px; font-size:12px; color:var(--muted); }
+.heat-share-legend span { display:flex; align-items:center; gap:7px; }
+.heat-share-legend i { width:8px; height:8px; background:var(--hot); border-radius:2px; }
+.heat-share-legend span+span i { background:var(--cool); }
+.heat-share-legend b { color:var(--text); font-weight:500; }
+.heat-allocation-bar { height:14px; gap:2px; }
+.thermal-section .chart-footer { margin-top:2px; }
+@media(max-width:760px) {
+  .chart-meta { gap:4px 8px; }
+  .chart-legend { gap:0 8px; }
+  .chart-summary strong { font-size:22px; }
+  .chart-footer { column-gap:8px; }
+  .chart-reader summary,.chart-reset { min-height:44px; }
+  .chart-method { font-size:10px; }
+  .chart-reader-body dd { font-size:13px; }
+  .thermal-section .chart-meta,.thermal-section .chart-footer { margin-left:10px; margin-right:10px; }
+  .thermal-section .plot,.plot { height:260px; }
+  .gas-panel .plot { height:280px; }
+  .composition-comparison .comparison-plot { height:370px; }
+  .segmented button { min-height:38px; }
 }
