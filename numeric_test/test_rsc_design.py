@@ -66,7 +66,8 @@ class RscDesignTests(unittest.TestCase):
             eingab(str(self.input))
         self.assertEqual(common.RSC_MODE, 1)
         self.assertEqual(common.T_RSC_OUT_C, 800)
-        self.input.write_text('\n'.join(original))
+        # 实际删除可选行，验证缺失第15行时恢复默认模式。
+        self.input.write_text('\n'.join(original[:14]))
         with contextlib.redirect_stdout(io.StringIO()):
             eingab(str(self.input))
         self.assertEqual(common.RSC_MODE, 0)

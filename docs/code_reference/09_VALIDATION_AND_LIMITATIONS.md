@@ -57,7 +57,7 @@
 .venv\Scripts\python.exe numeric_test/benchmark_solver.py --cases fixed texaco --output numeric_test/python_output/manual-models
 ```
 
-使用新的输出目录，避免覆盖已接受的证据。性能脚本会保存失败工况，因此进程退出0并不保证每个case收敛；检查`summary.json`中的`returncode`及各候选结果。元素验收遇未收敛会直接拒绝验收。
+使用新的输出目录，避免覆盖已接受的证据。性能脚本会保存失败工况，因此进程退出0并不保证每个case收敛；检查`summary.json`中的`returncode`及各候选结果。元素审计标准套件遇未收敛会停止。扩展套件保留未收敛状态并继续其余工况，`accepted`同时要求求解成功、总质量及元素账通过，整批存在未通过项时退出码为2。
 
 `run_regression.py`默认比较旧提交，属于移植审查工具；物理模型变更后不要把它的默认基线当成现行正确模型。`compare_results.py`和`comparison_summary.txt`保留历史Fortran比对；本轮文档整理没有重新编译原Fortran。
 
@@ -68,9 +68,18 @@
 1. 根据原始煤/水/氧化剂/CO₂输入独立建立C/H/O/N/S和灰入口账；不是把出口归一化成入口。
 2. 用各物种原子计量矩阵乘完整`FEMF`，加`WE·X`残碳和`WE·(1−X)`灰，取得第30格与末格截面流。
 3. 比较进口→燃烧室、燃烧室→废锅、进口→废锅，阈值每项`max(1e−6kg/h, inlet×1e−8)`。
-4. 另求总质量；保留逐格诊断、源项速率和旧缩放缺陷预测，便于定位而非只报一个“通过”。
+4. 总进口直接加总煤浆、纯氧、氧气携带的N₂、稀释CO₂。总出口由八种湿气摩尔流乘运行摩尔质量，加总固体`WE`计算。三组总质量差分别与`max(1e−6kg/h, 总进口×1e−8)`比较。
+5. 独立检查煤元素、灰及煤内水质量分数之和，以及运行摩尔质量与该次原子量是否一致。保留逐格诊断、源项速率和旧缩放缺陷预测。
 
 副产蒸汽在独立水侧，不加入合成气入口/出口账。灰作为惰性整体账项，不能同时把假想SiO₂中的氧计入ELO，也不能将全部WE都当未反应碳。使用舍入文本或UI百分数进行微量误差验收会损失证据。
+
+扩展套件包括22种工况，覆盖输入的当前计算模式、负荷、氧煤比、煤浆浓度、氧气纯度、二次氧/CO₂、煤内水/硫/灰、废锅高度/网格、炉压、联合反算及零挥发分诊断。各工况共享启动时的输入快照，分别在独立子目录使用`KTRL=1`初始化。
+
+```powershell
+.venv\Scripts\python.exe numeric_test/check_element_balance.py --suite expanded --output numeric_test/python_output/mass-balance-new
+```
+
+`--cases`可选择该套件中的案例，`--max-iterations`可显式增加迭代上限。重试应使用独立输出目录，并同时保留首次失败记录。2026-11-12实算证据见[多工况质量与元素审计](../MASS_BALANCE_CHECK_2026-11-12.md)。
 
 ## 9.5 尚未解决的物理和数值问题
 

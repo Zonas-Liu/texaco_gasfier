@@ -68,6 +68,45 @@ def inlet_components(state):
             'oxidant_and_co2': elemental_stream(oxidant_gas, atoms=atoms)}
 
 
+def total_mass_ledger(state):
+    """直接按物料流核算总质量，独立检查煤分析闭合与运行摩尔质量。"""
+    mc, mh, mo, mn, ms = _atomic(state)
+    slurry = float(state['BSLURRY'])
+    coal = slurry * float(state['RATIO_COAL'])
+    oxygen = float(state['FOXY']) * coal * (1 - float(state['ELH2O']) - float(state['ELAS']))
+    oxidant_kmol_s = oxygen / (2 * mo) / float(state['PURE_O2'])
+    nitrogen = oxidant_kmol_s * (1 - float(state['PURE_O2'])) * (2 * mn)
+    co2 = oxidant_kmol_s * float(state['RATIO_CO2']) * (mc + 2 * mo)
+    inlet_parts = dict(slurry=slurry * 3600, oxygen=oxygen * 3600,
+                       oxidant_nitrogen=nitrogen * 3600, dilution_co2=co2 * 3600)
+    masses = np.asarray(state['XMOL'][:8], dtype=float)
+    expected_masses = np.array([2*mo, mc+4*mh, mc+mo, mc+2*mo,
+                               2*mh+ms, 2*mh, 2*mn, 2*mh+mo])
+    totals = dict(inlet=sum(inlet_parts.values()))
+    outlet_parts = {}
+    for name, index in (('chamber', int(state['NZRC'])), ('rsc', int(state['NZRE']))):
+        gas = float(state['FEMF'][1:9, index] @ masses) * 3600
+        solid = float(state['WE'][index]) * 3600
+        carbon = solid * float(state['X'][index])
+        outlet_parts[name] = dict(wet_gas=gas, solid=solid, residual_carbon=carbon, ash=solid-carbon)
+        totals[name] = gas + solid
+    tolerance = max(1e-6, abs(totals['inlet']) * 1e-8)
+    comparisons = {}
+    for upstream, downstream in (('inlet', 'chamber'), ('chamber', 'rsc'), ('inlet', 'rsc')):
+        delta = totals[downstream] - totals[upstream]
+        comparisons[f'{upstream}_to_{downstream}'] = dict(delta_kg_h=delta,
+            relative_percent=delta / totals[upstream] * 100 if totals[upstream] else None,
+            passed=bool(abs(delta) <= tolerance))
+    analysis_sum = sum(float(state[k]) for k in ('ELC', 'ELH', 'ELO', 'ELN', 'ELS', 'ELAS', 'ELH2O'))
+    analysis_gap = coal * (analysis_sum - 1) * 3600
+    return dict(total_mass_kg_h=totals, inlet_mass_components_kg_h=inlet_parts,
+        outlet_mass_components_kg_h=outlet_parts, mass_tolerance_kg_h=tolerance,
+        mass_comparisons=comparisons,
+        coal_analysis=dict(sum=analysis_sum, mass_gap_kg_h=analysis_gap, passed=bool(abs(analysis_gap) <= tolerance)),
+        molar_mass_check=dict(max_error_kg_kmol=float(np.max(np.abs(masses-expected_masses))),
+                             passed=bool(np.allclose(masses, expected_masses, rtol=0, atol=1e-12))))
+
+
 def rsc_rates(state):
     """按收敛气体组成独立重算 RSC 源项，正号为反应式正向。"""
     rates = []
@@ -115,20 +154,24 @@ def ledger(state, *, consistent_scaling=True):
         # 第1格尚未加入二次氧；仅把31..NZRE的逐格差用于RSC无进料诊断。
         rows.append(dict(cell=i, elements_kg_h=flow.tolist(),
                          adjacent_delta_kg_h=(flow-previous).tolist()))
+    mass = total_mass_ledger(state)
+    passed = (all(item['passed'] for item in comparisons.values())
+              and all(item['passed'] for item in mass['mass_comparisons'].values())
+              and mass['coal_analysis']['passed'] and mass['molar_mass_check']['passed'])
     return dict(elements=list(ELEMENTS), units='kg/h', atomic_weights=dict(zip(ELEMENTS[:5], atoms.tolist())),
         input_components_kg_h={k:v.tolist() for k,v in inputs.items()}, inlet_kg_h=inlet.tolist(),
         chamber_kg_h=chamber.tolist(), rsc_kg_h=outlet.tolist(),
         chamber_temperature_c=float(state['T'][int(state['NZRC'])]-273.15),
         rsc_temperature_c=float(state['T'][int(state['NZRE'])]-273.15),
         tolerance_kg_h=tolerance.tolist(), comparisons=comparisons,
-        total_mass_kg_h=dict(inlet=float(inlet.sum()), chamber=float(chamber.sum()), rsc=float(outlet.sum())),
+        **mass, balance_passed=passed,
         sum_rsc_wgs_kmol_s=sw, sum_rsc_meth_kmol_s=sm,
         predicted_scaling_defect_kg_h=predicted.tolist(),
         prediction_gap_kg_h=(outlet-chamber-predicted).tolist(), cells=rows,
         rsc_rates=[dict(cell=i, wgs_kmol_s=w, meth_kmol_s=m) for i,w,m in rates])
 
 
-def run_case(name, source, destination, original_input, updates, backend='scipy'):
+def run_case(name, source, destination, original_input, updates, backend='scipy', *, allow_nonconverged=False):
     sys.path.insert(0, str(ROOT))
     from web_backend.dataparser import parse_datain0, write_datain0
     folder = destination / name
@@ -144,20 +187,63 @@ def run_case(name, source, destination, original_input, updates, backend='scipy'
             '--source', str(source), '--output', str(folder)], stdout=log, stderr=log, check=True,
             env={**os.environ, 'PYTHONIOENCODING':'utf-8', 'TEXACO_LINEAR_SOLVER':backend}, timeout=1800)
     timing = json.loads((folder/'timing.json').read_text(encoding='utf-8'))
-    if timing['returncode'] != 0:
-        raise RuntimeError(f'{name} 未收敛，不能验收元素衡算：{folder}')
     with np.load(folder/'state.npz') as state:
         result = ledger(state)
-    result.update(case=name, timing=timing, linear_backend=backend)
+        solved = {k: float(state[k]) for k in ('BSLURRY', 'FOXY', 'H_RSC')}
+    result.update(case=name, timing=timing, linear_backend=backend, input_parameters=params,
+                  solved_parameters=solved, solver_success=timing['returncode'] == 0,
+                  accepted=timing['returncode'] == 0 and result['balance_passed'])
     (folder/'element_balance.json').write_text(json.dumps(result, ensure_ascii=False, indent=2)+'\n', encoding='utf-8')
-    print(json.dumps(dict(case=name, chamber_pass=result['comparisons']['inlet_to_chamber']['passed'],
-        rsc_pass=result['comparisons']['chamber_to_rsc']['passed'],
-        delta_kg_h=result['comparisons']['chamber_to_rsc']['delta_kg_h']), ensure_ascii=False), flush=True)
+    print(json.dumps(dict(case=name, solver_success=result['solver_success'], accepted=result['accepted'],
+        iterations=timing['iterations'], seconds=round(timing['seconds'], 2),
+        max_mass_delta_kg_h=max(abs(c['delta_kg_h']) for c in result['mass_comparisons'].values()),
+        max_element_delta_kg_h=max(abs(d) for c in result['comparisons'].values() for d in c['delta_kg_h'])),
+        ensure_ascii=False), flush=True)
+    if not result['solver_success'] and not allow_nonconverged:
+        raise RuntimeError(f'{name} 求解失败，状态仅供诊断：{folder}')
     return result
 
 
-def run_experiment(destination, input_path, selected=None):
+def expanded_variants(params):
+    """围绕输入工况改变负荷、煤质、氧气、几何、压力及计算模式。"""
+    wet = {k: params[k] * .95 / (1-params['ELH2O'])
+           for k in ('ELC', 'ELH', 'ELO', 'ELN', 'ELS', 'ELAS')}
+    wet['ELH2O'] = .05
+    return {
+        'current-input': {k: params[k] for k in ('RSC_MODE', 'FEED_MODE')},
+        'baseline': {},
+        'low-load': dict(BSLURRY=10),
+        'high-load': dict(BSLURRY=18),
+        'oxygen-lean': dict(FOXY=.92),
+        'oxygen-rich': dict(FOXY=1.04),
+        'slurry-dilute': dict(RATIO_COAL=.55),
+        'slurry-dense': dict(RATIO_COAL=.65),
+        'oxygen-95': dict(PURE_O2=.95),
+        'secondary-co2': dict(OX_PART=.75, RATIO_CO2=.1),
+        'wet-coal-5': wet,
+        'sulfur-2': dict(ELS=.02, ELC=params['ELC']+params['ELS']-.02),
+        'ash-20': dict(ELAS=.2, ELC=params['ELC']+params['ELAS']-.2),
+        'rsc-short': dict(H_RSC=15),
+        'rsc-tall': dict(H_RSC=60),
+        'rsc-one': dict(N_RSC=1),
+        'rsc-ten': dict(N_RSC=10),
+        'no-rsc-relax': dict(KRELAX_WGS=0, KRELAX_METH=0),
+        'low-pressure': dict(PWK=4.1e6),
+        'high-pressure': dict(PWK=8.1e6, PFEED_SL=9.1e6, PFEED_O2=9.1e6, PFEED_CO2=9.1e6),
+        'combined-design': dict(FEED_MODE=1, T_CHAMBER_C=1250, EFFECTIVE_GAS_NMH=55000,
+                                RSC_MODE=1, T_RSC_OUT_C=780),
+        'zero-volatiles': dict(XVM=0),
+    }
+
+
+def run_experiment(destination, input_path, selected=None, *, suite='standard', max_iterations=None):
     destination.mkdir(parents=True, exist_ok=True)
+    # 固定输入快照，批量运行中界面改参也不会改变后续试算的基线。
+    snapshot = destination / 'source_input.dat'
+    snapshot.write_bytes(input_path.read_bytes())
+    sys.path.insert(0, str(ROOT))
+    from web_backend.dataparser import parse_datain0
+    params = parse_datain0(snapshot)
     wet_coal = {k:v*.98 for k,v in dict(ELC=.6802, ELH=.0404, ELO=.0985, ELN=.0249, ELS=.006, ELAS=.15).items()}
     wet_coal['ELH2O'] = .02
     variants = {
@@ -170,19 +256,29 @@ def run_experiment(destination, input_path, selected=None):
         'zero-volatiles': dict(XVM=0),
         'rsc-one': dict(N_RSC=1),
     }
+    if suite == 'expanded':
+        variants = expanded_variants(params)
+    names = selected or [n for n in variants if suite == 'expanded' or n != 'zero-volatiles']
+    unknown = set(names) - variants.keys()
+    if unknown:
+        raise ValueError(f'未知工况 {sorted(unknown)}')
     cases = []
     # XVM=0 是可选诊断：默认输入的该边界在100次内未收敛，不列入已验收工况。
-    for name in (selected or [n for n in variants if n != 'zero-volatiles']):
-        result = run_case(name, ROOT, destination, input_path, variants[name],
-                          backend='legacy' if name == 'legacy' else 'scipy')
-        if not all(item['passed'] for item in result['comparisons'].values()):
+    for name in names:
+        updates = dict(variants[name])
+        if max_iterations is not None:
+            updates['ITMAX'] = max_iterations
+        result = run_case(name, ROOT, destination, snapshot, updates,
+                          backend='legacy' if name == 'legacy' else 'scipy', allow_nonconverged=suite == 'expanded')
+        if suite == 'standard' and not result['balance_passed']:
             raise AssertionError(f'{name}: 元素不守恒，详见element_balance.json')
         cases.append(result)
-    report = dict(input_sha256=hashlib.sha256(input_path.read_bytes()).hexdigest(),
-        source_commit=subprocess.check_output(['git','rev-parse','HEAD'], cwd=ROOT, text=True).strip(),
-        mode='给定进料、固定高度、KTRL=1；不读取根目录START',
-        cases=[{k:v for k,v in case.items() if k not in ('cells', 'rsc_rates')} for case in cases])
-    (destination/'summary.json').write_text(json.dumps(report, ensure_ascii=False, indent=2)+'\n', encoding='utf-8')
+        # 每个已完成工况均落盘，保留非收敛诊断，accepted同时要求求解成功与守恒通过。
+        report = dict(input_sha256=hashlib.sha256(snapshot.read_bytes()).hexdigest(),
+            source_commit=subprocess.check_output(['git','rev-parse','HEAD'], cwd=ROOT, text=True).strip(),
+            suite=suite, mode='KTRL=1；各工况模式、初值与最终解记录在cases中',
+            cases=[{k:v for k,v in case.items() if k not in ('cells', 'rsc_rates')} for case in cases])
+        (destination/'summary.json').write_text(json.dumps(report, ensure_ascii=False, indent=2)+'\n', encoding='utf-8')
     return report
 
 
@@ -191,5 +287,9 @@ if __name__ == '__main__':
     parser.add_argument('--input', type=Path, default=ROOT/'data/Datain0.dat')
     parser.add_argument('--output', type=Path, default=ROOT/'numeric_test/python_output/element-balance-fixed')
     parser.add_argument('--cases', nargs='+')
+    parser.add_argument('--suite', choices=('standard', 'expanded'), default='standard')
+    parser.add_argument('--max-iterations', type=int, help='统一覆盖ITMAX，收敛阈值沿用输入')
     args = parser.parse_args()
-    run_experiment(args.output.resolve(), args.input.resolve(), args.cases)
+    report = run_experiment(args.output.resolve(), args.input.resolve(), args.cases,
+                            suite=args.suite, max_iterations=args.max_iterations)
+    sys.exit(0 if all(c['accepted'] for c in report['cases']) else 2)

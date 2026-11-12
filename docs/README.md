@@ -22,6 +22,7 @@
 
 | 文档 | 用途/版本边界 |
 |---|---|
+| [2026-11-12多工况质量与元素审计](MASS_BALANCE_CHECK_2026-11-12.md) | 直接物料流总质量、C/H/O/N/S及灰、三截面、扩展工况与收敛状态 |
 | [元素守恒修复及验收](ELEMENT_BALANCE_FIX.md) | 当前模型基线；修复RSC缩放、统一常数与IF97后的真实求解结果 |
 | [修复后精简JSON证据](element_balance_fixed_results.json) | 原始精度账项、源码哈希、工况摘要 |
 | [原元素守恒实验](ELEMENT_BALANCE_EXPERIMENT.md) | 修复前缺口及定位证据，保留供追溯 |

@@ -142,6 +142,8 @@ TEXACO（德士古）水煤浆气化炉 Fortran 程序的 Python 移植版（1D 
 - 典型新基准：64次收敛，燃烧室1232.374℃、废锅791.480℃、水冷壁2.157 t/h、废锅30.465 t/h；旧756.86℃与24.32 t/h已失效。46项单元回归通过。
 - XVM=0源项传参及H2S耗氢已修正，但全炉默认100次仍未收敛，仅保留为可选诊断；KCHECK辅助模式、独立能量闭合和全操作范围不在本次验收范围。
 - 当前证据见 `docs/ELEMENT_BALANCE_FIX.md`、`docs/element_balance_fixed_results.json`；常数来源、经验近似及适用边界见 `docs/PHYSICAL_CONSTANTS.md`。原缺陷历史报告保留。
+- 2026-11-12扩展审计使用 `check_element_balance.py --suite expanded`，22种工况保留求解状态与独立总质量账。总进口直接加总煤浆/氧气/N2/稀释CO2，总出口为八种湿气加WE，并单独检查煤分析闭合及摩尔质量一致性。
+- 扩展套件的 `accepted` 同时要求求解成功和全部守恒检查通过；未收敛工况保留诊断并继续批次，整批存在未通过项返回2。`--max-iterations`仅改变迭代上限，重试须单独留档。实算记录见 `docs/MASS_BALANCE_CHECK_2026-11-12.md`。
 
 ## 文档与源码整理（2026-11-02）
 - 当前详细说明入口为 `docs/README.md` 和 `docs/code_reference/README.md`，共10章，按实际实现说明状态、守恒、动力学、物性、求解、协议及验收；旧TODO/问题登记在 `docs/archive/`。

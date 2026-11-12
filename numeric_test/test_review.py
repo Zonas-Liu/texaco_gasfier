@@ -33,6 +33,9 @@ class ReviewTests(unittest.TestCase):
         self.directory = Path(self.tmp.name)
         self.input = self.directory / 'Datain0.dat'
         self.input.write_bytes((ROOT / 'data/Datain0.dat').read_bytes())
+        params = dataparser.parse_datain0(self.input)
+        params.update(KTRL=1, KMODEL=1, N_RSC=30, FEED_MODE=0, RSC_MODE=0)
+        dataparser.write_datain0(self.input, params)
 
     def initialize(self):
         with contextlib.redirect_stdout(io.StringIO()):
@@ -49,12 +52,15 @@ class ReviewTests(unittest.TestCase):
         self.assertEqual(common.FEEDO2[45], 0)
 
     def test_invalid_core_inputs(self):
-        original = self.input.read_text()
-        for old, new in [('2.6,30.0,30', '2.6,30.0,31'),
-                         ('2.6,30.0,30', '2.6,30.0,1.5'),
-                         ('6.5D06', '2.0D06'), ('1773.0', 'nan')]:
+        original = self.input.read_text().splitlines()
+        for line, column, new in ((12, 4, '31'), (12, 4, '1.5'),
+                                  (11, 1, '2.0D06'), (12, 0, 'nan')):
             with self.subTest(new=new):
-                self.input.write_text(original.replace(old, new))
+                lines = original.copy()
+                fields = lines[line].split('/')[0].strip().split(',')
+                fields[column] = new
+                lines[line] = ','.join(fields)
+                self.input.write_text('\n'.join(lines))
                 with self.assertRaises(ValueError):
                     self.initialize()
 
